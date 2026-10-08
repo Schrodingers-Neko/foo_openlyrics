@@ -27,13 +27,13 @@ Dictionary build and packaging recipe: `build/build_furigana_dictionary.ps1`, VS
 
 The base `.fb2k-component` contains the two DLLs and MeCab/miniz notices, with no dictionary payload. Initial installation needs approximately one installed dictionary's free disk space plus a 1 MiB allowance, in addition to any retained old dictionary. The bounded archive is temporarily held in memory during setup.
 
-Optional asset: [versioned dictionary data release](https://github.com/Schrodingers-Neko/foo_openlyrics/releases/tag/furigana-dictionary-ipadic-20070801-v1). The tagged workflow rebuilds and verifies the pinned SHA-256 before publishing. Component release tags and version-header generation exclude dictionary data tags.
+Optional asset: [versioned dictionary data release](https://github.com/Schrodingers-Neko/foo_openlyrics/releases/tag/furigana-dictionary-ipadic-20070801-v1). [GitHub's independent build](https://github.com/Schrodingers-Neko/foo_openlyrics/actions/runs/37860754248) reproduced the pinned archive and published it successfully. Component release tags and version-header generation exclude dictionary data tags; forks without component tags use a commit-based development version.
 
 Archive SHA-256: `3df6f40dfb4d7ddb558299ec4f39dc79ca32cd5ace076eb7bf61fe86f3d49412`.
 
 ## Local automated verification
 
-- x86 and x64 Debug regression suites each pass all 118 tests, with the optional native dictionary and read-only supplied lyric fixture enabled. Release component builds pass on both architectures. The separately gated real download test runs only when explicitly requested.
+- x86 and x64 Debug regression suites each pass all 118 tests, with the optional native dictionary and read-only supplied lyric fixture enabled. Release component builds pass on both architectures. Both suites also passed with the explicitly requested real HTTPS download test enabled against the published release asset, including digest and archive validation.
 - Generator coverage includes grouped compounds, okurigana, ambiguous kana anchors, invalid/unknown readings, numerical/Latin exclusions, Unicode offsets, surrogate pairs, variation selectors, metadata exclusion, repeated sublines, cache reuse and eviction, and eligibility before dictionary loading.
 - Dictionary tests exercise initial installation, cancellation during extraction, cancelled replacement preserving the old installation, exact archive hash validation, installed-file corruption/repair, Unicode and space-containing profile paths, unexpected files protecting removal, and unsafe archive names/link attributes/size declarations.
 - Background-service tests verify disabled/default-off behavior, equivalent-request coalescing, obsolete requests, cancellation/disablement, source preservation, and shutdown rejecting stale callbacks.
