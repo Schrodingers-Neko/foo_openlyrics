@@ -2,16 +2,15 @@ param (
         [Parameter(Mandatory)]
         [string]$output_path
       )
-$version_string = git describe --tags --match 'v[0-9]*' --first-parent HEAD
+$version_string = git describe --tags --match 'v[0-9]*' --first-parent --always HEAD
 Write-Output "Computing version header from version string '$version_string'..."
-if ([string]::IsNullOrEmpty($version_string)) {
-    Write-Output "Failed to compute commit description, git returned an empty string, terminating..."
-    return 1
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($version_string)) {
+    throw 'Failed to compute the component version from Git'
 }
 
-if ($version_string[0] -Ne 'v') {
-    Write-Output "Current commit description ""$version_string"" does not have the expected format, terminating..."
-    Return 1
+if ($version_string[0] -ne 'v') {
+    # Forks need not copy upstream's component tags. Data tags must not become component versions.
+    $version_string = "v0.0.0-g$version_string"
 }
 $version_string = $version_string.Substring(1) # Remove the leading 'v'
 
