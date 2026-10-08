@@ -39,8 +39,22 @@ jobs:
       - name: Build debug binaries
         run: msbuild /r /m /p:Configuration=Debug /p:Platform=x86 build\foo_openlyrics.sln
 
+      - name: Build optional dictionary for native tests
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.7'
+
+      - name: Compile optional dictionary for native tests
+        shell: pwsh
+        run: ./build/build_furigana_dictionary.ps1 -Platform Win32 -Configuration Debug
+
       - name: Run tests
-        run: build\Debug\test_foo_openlyrics.exe build\Debug\foo_openlyrics.dll
+        shell: pwsh
+        run: |
+          $env:OPENLYRICS_GENERATION_DICTIONARY = (Resolve-Path build/furigana-dictionary/ipadic-utf8-20070801).Path
+          $env:OPENLYRICS_DICTIONARY_ARCHIVE = (Resolve-Path build/furigana-dictionary/openlyrics-ipadic-utf8-20070801-v1.zip).Path
+          $env:OPENLYRICS_DICTIONARY_TEST_ROOT = Join-Path $PWD 'build/furigana-dictionary/ci-x86-profile'
+          build\Debug\test_foo_openlyrics.exe build\Debug\foo_openlyrics.dll
 
       - name: Build release binaries
         run: msbuild /r /m /p:Configuration=Release /p:Platform=x86 build\foo_openlyrics.sln
@@ -63,8 +77,22 @@ jobs:
       - name: Build debug binaries
         run: msbuild /r /m /p:Configuration=Debug /p:Platform=x64 build\foo_openlyrics.sln
 
+      - name: Build optional dictionary for native tests
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.7'
+
+      - name: Compile optional dictionary for native tests
+        shell: pwsh
+        run: ./build/build_furigana_dictionary.ps1 -Platform x64 -Configuration Debug
+
       - name: Run tests
-        run: build\x64\Debug\test_foo_openlyrics.exe build\x64\Debug\foo_openlyrics.dll
+        shell: pwsh
+        run: |
+          $env:OPENLYRICS_GENERATION_DICTIONARY = (Resolve-Path build/furigana-dictionary/ipadic-utf8-20070801).Path
+          $env:OPENLYRICS_DICTIONARY_ARCHIVE = (Resolve-Path build/furigana-dictionary/openlyrics-ipadic-utf8-20070801-v1.zip).Path
+          $env:OPENLYRICS_DICTIONARY_TEST_ROOT = Join-Path $PWD 'build/furigana-dictionary/ci-x64-profile'
+          build\x64\Debug\test_foo_openlyrics.exe build\x64\Debug\foo_openlyrics.dll
 
       - name: Build release binaries
         run: msbuild /r /m /p:Configuration=Release /p:Platform=x64 build\foo_openlyrics.sln

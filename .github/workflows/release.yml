@@ -6,7 +6,7 @@ on:
   # if we need to make fixes as part of the release process.
   push:
     tags:
-      - '*'
+      - 'v[0-9]*'  # Optional dictionary data releases are not component releases.
 
 jobs:
   run-tests:
@@ -35,7 +35,7 @@ jobs:
         continue-on-error: false  # The C++ compilation uses `git describe HEAD` while the release creation uses the tag given by the Github Actions trigger, these should match
         shell: bash
         run: |
-          tag_description=$(git describe --tags --first-parent HEAD)
+          tag_description=$(git describe --tags --match 'v[0-9]*' --first-parent HEAD)
           release_version="${GITHUB_REF#refs/tags/}"
           echo "Checking tag description \"$tag_description\" against release version \"$release_version\"..."
           if [ "$tag_description" == "$release_version" ]; then
@@ -61,6 +61,9 @@ jobs:
           pushd build_component_staging
           cp "../build/Release/foo_openlyrics.dll" "."
           cp "../build/x64/Release/foo_openlyrics.dll" "x64/"
+          mkdir -p licenses
+          cp "../3rdparty/mecab-support/LICENSE" "licenses/MeCab-BSD.txt"
+          cp "../3rdparty/miniz-3.0.2/LICENSE" "licenses/miniz-MIT.txt"
           7z a -tzip "../${release_name}.fb2k-component" "."
           popd
           mkdir -p build_symbols_staging/x86

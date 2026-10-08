@@ -3,6 +3,7 @@
 #define CURL_STATICLIB
 #include "curl/curl.h"
 #include "curl/multi.h"
+#include "furigana_service.h"
 #include "http.h"
 #include "logging.h"
 #include "openlyrics_version.h" // Defines OPENLYRICS_VERSION
@@ -18,6 +19,7 @@ static void on_init()
 
 static void on_quit()
 {
+    furigana_generation::shutdown(); // Finish/cancel dictionary transfers before libcurl cleanup.
     curl_global_cleanup();
 }
 

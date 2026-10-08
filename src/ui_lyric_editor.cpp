@@ -7,6 +7,7 @@
 #include "resource.h"
 #pragma warning(pop)
 
+#include "furigana.h"
 #include "logging.h"
 #include "lyric_io.h"
 #include "lyric_metadata.h"
@@ -24,7 +25,7 @@ public:
         IDD = IDD_LYRIC_EDIT
     };
 
-    LyricEditor(LyricDataCommon common_data, std::tstring text, metadb_handle_ptr track, metadb_v2_rec_t& track_info);
+    LyricEditor(LyricData lyrics, std::tstring text, metadb_handle_ptr track, metadb_v2_rec_t& track_info);
     ~LyricEditor() override;
 
     BEGIN_MSG_MAP_EX(LyricEditor)
@@ -76,7 +77,8 @@ private:
     std::tstring GetEditorContents();
     LyricData ParseEditorContents();
 
-    LyricDataCommon m_common_data;
+    LyricData m_annotation_snapshot;
+    LyricData m_input_annotations;
     std::tstring m_input_text;
     metadb_handle_ptr m_track;
     metadb_v2_rec_t m_track_info;
@@ -87,11 +89,9 @@ private:
     fb2k::CCoreDarkModeHooks m_dark;
 };
 
-LyricEditor::LyricEditor(LyricDataCommon common_data,
-                         std::tstring text,
-                         metadb_handle_ptr track,
-                         metadb_v2_rec_t& track_info)
-    : m_common_data(common_data)
+LyricEditor::LyricEditor(LyricData lyrics, std::tstring text, metadb_handle_ptr track, metadb_v2_rec_t& track_info)
+    : m_annotation_snapshot(std::move(lyrics))
+    , m_input_annotations(m_annotation_snapshot)
     , m_input_text(text)
     , m_track(track)
     , m_track_info(track_info)
@@ -295,6 +295,7 @@ void LyricEditor::OnLineSync(UINT /*btn_id*/, int /*notification_type*/, CWindow
 
 void LyricEditor::OnEditReset(UINT /*btn_id*/, int /*notification_type*/, CWindow /*btn*/)
 {
+    m_annotation_snapshot = m_input_annotations;
     SetDlgItemText(IDC_LYRIC_TEXT, m_input_text.c_str());
 }
 
@@ -358,7 +359,8 @@ void LyricEditor::SelectLineWithTimestampGreaterOrEqual(double threshold_timesta
 
 void LyricEditor::SetEditorContents(const LyricData& lyrics)
 {
-    std::tstring new_contents = parsers::lrc::expand_text(lyrics, false);
+    m_annotation_snapshot = lyrics;
+    std::tstring new_contents = parsers::lrc::expand_text(lyrics, false, parsers::lrc::TextPurpose::Editor);
     SetDlgItemText(IDC_LYRIC_TEXT, new_contents.c_str());
     SendDlgItemMessage(IDC_LYRIC_TEXT, EM_SCROLLCARET, 0, 0);
 }
@@ -586,6 +588,8 @@ void LyricEditor::ApplyLyricEdits()
 
     // Update m_input_text so that HasContentChanged() will return the correct value after the same
     m_input_text = GetEditorContents();
+    m_annotation_snapshot = parsers::lrc::parse_editor(m_annotation_snapshot, from_tstring(m_input_text), false);
+    m_input_annotations = m_annotation_snapshot;
 
     // We know that if we ran HasContentChanged() now, it would return false.
     // So short-circuit it and just disable the apply button directly
@@ -618,7 +622,7 @@ std::tstring LyricEditor::GetEditorContents()
 LyricData LyricEditor::ParseEditorContents()
 {
     std::string lyrics = from_tstring(GetEditorContents());
-    return parsers::lrc::parse(m_common_data, lyrics);
+    return parsers::lrc::parse_editor(m_annotation_snapshot, lyrics);
 }
 
 HWND SpawnLyricEditor(const LyricData& lyrics, metadb_handle_ptr track, metadb_v2_rec_t track_info)
@@ -628,7 +632,7 @@ HWND SpawnLyricEditor(const LyricData& lyrics, metadb_handle_ptr track, metadb_v
     HWND result = nullptr;
     try
     {
-        const std::tstring text = parsers::lrc::expand_text(lyrics, false);
+        const std::tstring text = parsers::lrc::expand_text(lyrics, false, parsers::lrc::TextPurpose::Editor);
         auto new_window = fb2k::newDialog<LyricEditor>(lyrics, text, track, track_info);
         result = new_window->m_hWnd;
     }

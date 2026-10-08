@@ -1,5 +1,6 @@
 #include "stdafx.h"
 
+#include "furigana.h"
 #include "logging.h"
 #include "lyric_auto_edit.h"
 #include "lyric_metadata.h"
@@ -333,9 +334,7 @@ static std::optional<LyricData> RemoveSurroundingWhitespace(const LyricData& lyr
     }
 }
 
-std::optional<LyricData> auto_edit::RunAutoEdit(AutoEditType type,
-                                                const LyricData& lyrics,
-                                                const metadb_v2_rec_t& track_info)
+static std::optional<LyricData> run_text_edit(AutoEditType type, const LyricData& lyrics)
 {
     std::optional<LyricData> result;
     switch(type)
@@ -356,11 +355,24 @@ std::optional<LyricData> auto_edit::RunAutoEdit(AutoEditType type,
             break;
     }
 
-    metrics::log_used_auto_edit();
     if(result.has_value())
     {
-        lyric_metadata_log_edit(track_info);
+        const bool nonbase_edit = type == AutoEditType::RemoveRepeatedSpaces
+                                  || type == AutoEditType::RemoveSurroundingWhitespace
+                                  || type == AutoEditType::ResetCapitalisation
+                                  || type == AutoEditType::ReplaceHtmlEscapedChars;
+        furigana::preserve_annotations(lyrics, *result, nonbase_edit);
     }
+    return result;
+}
+
+std::optional<LyricData> auto_edit::RunAutoEdit(AutoEditType type,
+                                                const LyricData& lyrics,
+                                                const metadb_v2_rec_t& track_info)
+{
+    auto result = run_text_edit(type, lyrics);
+    metrics::log_used_auto_edit();
+    if(result) lyric_metadata_log_edit(track_info);
     return result;
 }
 
@@ -368,6 +380,41 @@ std::optional<LyricData> auto_edit::RunAutoEdit(AutoEditType type,
 // Tests
 // ============
 #if MVTF_TESTS_ENABLED
+MVTF_TEST(autoedit_furigana_survives_supported_operations)
+{
+    const auto original = parsers::lrc::parse(
+        {},
+        "[00:01.00] A  日 &amp; 々 \n[00:02.00] \n[00:03.00] 日\n[kana:1ひ1び1にち]");
+    for(const auto type : { AutoEditType::RemoveRepeatedSpaces,
+                            AutoEditType::RemoveSurroundingWhitespace,
+                            AutoEditType::ResetCapitalisation,
+                            AutoEditType::ReplaceHtmlEscapedChars,
+                            AutoEditType::RemoveAllBlankLines,
+                            AutoEditType::RemoveTimestamps })
+    {
+        const auto edited = run_text_edit(type, original);
+        ASSERT(edited.has_value());
+        ASSERT(edited->kana_metadata_valid);
+        const auto lines = furigana::split_lines(*edited);
+        size_t readings = 0;
+        for(const auto& line : lines)
+        {
+            for(const auto& span : line.furigana)
+            {
+                ASSERT(line.text.substr(span.start, span.length) == (span.reading == _T("び") ? _T("々") : _T("日")));
+                ++readings;
+            }
+        }
+        ASSERT(readings == 3);
+        const auto reparsed = parsers::lrc::parse({}, from_tstring(parsers::lrc::expand_text(*edited, true)));
+        ASSERT(reparsed.kana_metadata_valid);
+        size_t saved_readings = 0;
+        for(const auto& line : reparsed.lines)
+            saved_readings += line.furigana.size();
+        ASSERT(saved_readings == 3);
+    }
+}
+
 MVTF_TEST(autoedit_fixmalformedtimestamps_corrects_decimal_separator_from_colon_to_dot)
 {
     const std::string input = "[00:15:83]test";

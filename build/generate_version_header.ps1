@@ -2,8 +2,8 @@ param (
         [Parameter(Mandatory)]
         [string]$output_path
       )
-$version_string = git describe --tags --first-parent HEAD
-Write-Output "Computing version header from version string '$verion_string'..."
+$version_string = git describe --tags --match 'v[0-9]*' --first-parent HEAD
+Write-Output "Computing version header from version string '$version_string'..."
 if ([string]::IsNullOrEmpty($version_string)) {
     Write-Output "Failed to compute commit description, git returned an empty string, terminating..."
     return 1

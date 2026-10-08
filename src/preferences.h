@@ -156,6 +156,7 @@ namespace preferences
 
         double highlight_fade_seconds();
         int linegap();
+        bool show_furigana();
 
         bool debug_logs_enabled();
 

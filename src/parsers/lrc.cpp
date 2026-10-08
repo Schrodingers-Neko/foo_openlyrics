@@ -1,5 +1,6 @@
 #include "stdafx.h"
 
+#include "furigana.h"
 #include "logging.h"
 #include "lyric_data.h"
 #include "mvtf/mvtf.h"
@@ -30,6 +31,7 @@ static std::optional<TResult> strtoint(std::string_view str)
 
 bool parsers::lrc::is_tag_line(std::string_view line)
 {
+    if(furigana::is_kana_tag(line)) return true;
     if(line.size() <= 0) return false;
     if(line[0] != '[') return false;
     if(line[line.size() - 1] != ']') return false;
@@ -315,16 +317,21 @@ static std::vector<LyricDataLine> collapse_concurrent_lines(const std::vector<Ly
                              }
 
                              LyricDataLine combined = { lhs.text + _T('\n') + rhs.text, lhs.timestamp };
+                             combined.furigana = lhs.furigana;
+                             for(const auto& span : rhs.furigana)
+                                 combined.furigana.push_back(
+                                     { span.start + lhs.text.size() + 1, span.length, span.reading });
                              return std::pair { combined, std::optional<LyricDataLine> {} };
                          });
 }
 
-LyricData parsers::lrc::parse(const LyricDataCommon& metadata, std::string_view text) // `text` is assumed to be utf-8
+static LyricData parse_lrc(const LyricDataCommon& metadata, std::string_view text, bool sort_lines)
 {
     LOG_INFO("Parsing LRC lyric text...");
 
     std::vector<LyricDataLine> lines;
     std::vector<std::string> tags;
+    std::vector<std::string> kana_tags;
     bool tag_section_passed = false; // We only want to count lines as "tags" if they appear at the top of the file
     double timestamp_offset = 0.0;
 
@@ -355,7 +362,11 @@ LyricData parsers::lrc::parse(const LyricDataCommon& metadata, std::string_view 
 
         const std::string_view line_view { text.data() + line_start_index, line_bytes };
         ParsedLineContents parse_output = parse_line_times(line_view);
-        if(parse_output.timestamps.size() > 0)
+        if(furigana::is_kana_tag(line_view))
+        {
+            kana_tags.emplace_back(line_view);
+        }
+        else if(parse_output.timestamps.size() > 0)
         {
             tag_section_passed = true;
             for(double timestamp : parse_output.timestamps)
@@ -372,7 +383,7 @@ LyricData parsers::lrc::parse(const LyricDataCommon& metadata, std::string_view 
             // of the system without special handling.
             // NOTE: It is important however, to note that this means we need to stable_sort
             //       below, to preserve the ordering of the "untimed" lines
-            if(!tag_section_passed && is_tag_line(line_view))
+            if(!tag_section_passed && parsers::lrc::is_tag_line(line_view))
             {
                 tags.emplace_back(line_view);
 
@@ -400,19 +411,43 @@ LyricData parsers::lrc::parse(const LyricDataCommon& metadata, std::string_view 
         }
     }
 
-    std::stable_sort(lines.begin(),
-                     lines.end(),
-                     [](const LyricDataLine& a, const LyricDataLine& b) { return a.timestamp < b.timestamp; });
-    lines = collapse_concurrent_lines(lines);
-
+    if(sort_lines)
+        std::stable_sort(lines.begin(),
+                         lines.end(),
+                         [](const LyricDataLine& a, const LyricDataLine& b) { return a.timestamp < b.timestamp; });
     LyricData result(metadata);
     result.tags = std::move(tags);
     result.lines = std::move(lines);
     result.timestamp_offset = timestamp_offset;
+    result.has_kana_metadata = !kana_tags.empty();
+    result.raw_kana_tags = std::move(kana_tags);
+    furigana::decode(result);
+    result.lines = collapse_concurrent_lines(result.lines);
+    furigana::remember_source_lines(result);
     return result;
 }
 
-std::tstring parsers::lrc::expand_text(const LyricData& data, bool merge_equivalent_lrc_lines)
+LyricData parsers::lrc::parse(const LyricDataCommon& metadata, std::string_view text)
+{
+    return parse_lrc(metadata, text, true);
+}
+
+LyricData parsers::lrc::parse_editor(const LyricData& previous, std::string_view text, bool sort_result)
+{
+    auto result = parse_lrc(previous, text, false);
+    // Explicit metadata pasted into the editor is a new source, not the hidden snapshot.
+    if(result.has_kana_metadata) return parsers::lrc::parse(previous, text);
+    // Match physical occurrences before timestamp edits reorder them.
+    furigana::preserve_annotations(previous, result);
+    if(sort_result)
+        std::stable_sort(result.lines.begin(),
+                         result.lines.end(),
+                         [](const auto& a, const auto& b) { return a.timestamp < b.timestamp; });
+    result.lines = collapse_concurrent_lines(result.lines);
+    return result;
+}
+
+std::tstring parsers::lrc::expand_text(const LyricData& data, bool merge_equivalent_lrc_lines, TextPurpose purpose)
 {
     LOG_INFO("Expanding lyric text...");
     std::tstring expanded_text;
@@ -422,8 +457,9 @@ std::tstring parsers::lrc::expand_text(const LyricData& data, bool merge_equival
         expanded_text += to_tstring(tag);
         expanded_text += _T("\r\n");
     }
-    if(!expanded_text.empty())
+    if(!expanded_text.empty() && !data.has_kana_metadata)
     {
+        // Annotated files must not gain a new untimed blank lyric on each round trip.
         expanded_text += _T("\r\n");
     }
     // NOTE: We specifically do *not* generate a new tag for the offset because all changes to that
@@ -432,32 +468,23 @@ std::tstring parsers::lrc::expand_text(const LyricData& data, bool merge_equival
     if(data.IsTimestamped())
     {
         // Split lines with the same timestamp
-        std::vector<LyricDataLine> out_lines;
-        out_lines.reserve(data.lines.size());
-        for(const LyricDataLine& in_line : data.lines)
-        {
-            // NOTE: Ordinarily a single line is just a single line and contains no newlines.
-            //       However if two lines in an lrc file have identical timestamps, then we merge them
-            //       during parsing. In that case we need to split them out again here.
-            size_t start_index = 0;
-            while(start_index <= in_line.text.length()) // This is specifically less-or-equal so that empty lines do
-                                                        // not get ignored and show up in the editor
-            {
-                size_t end_index = std::min(in_line.text.length(), in_line.text.find('\n', start_index));
-                size_t length = end_index - start_index;
-                std::tstring out_text(&in_line.text.c_str()[start_index], length);
-                out_lines.push_back({ out_text, in_line.timestamp });
-
-                start_index = end_index + 1;
-            }
-        }
+        std::vector<LyricDataLine> out_lines = furigana::split_lines(data);
 
         if(merge_equivalent_lrc_lines)
         {
             std::vector<std::pair<size_t, LyricDataLine>> indexed_lines = alg::enumerate(std::move(out_lines));
 
             const auto lexicographic_sort = [](const auto& lhs, const auto& rhs)
-            { return lhs.second.text < rhs.second.text; };
+            {
+                if(lhs.second.text != rhs.second.text) return lhs.second.text < rhs.second.text;
+                return std::lexicographical_compare(
+                    lhs.second.furigana.begin(),
+                    lhs.second.furigana.end(),
+                    rhs.second.furigana.begin(),
+                    rhs.second.furigana.end(),
+                    [](const auto& a, const auto& b)
+                    { return std::tie(a.start, a.length, a.reading) < std::tie(b.start, b.length, b.reading); });
+            };
             std::stable_sort(indexed_lines.begin(), indexed_lines.end(), lexicographic_sort);
             decltype(indexed_lines)::iterator equal_begin = indexed_lines.begin();
 
@@ -465,6 +492,7 @@ std::tstring parsers::lrc::expand_text(const LyricData& data, bool merge_equival
             {
                 decltype(indexed_lines)::iterator equal_end = equal_begin + 1;
                 while((equal_end != indexed_lines.end()) && (equal_begin->second.text == equal_end->second.text)
+                      && (equal_begin->second.furigana == equal_end->second.furigana)
                       && (equal_end->second.timestamp != DBL_MAX))
                 {
                     equal_end++;
@@ -519,6 +547,11 @@ std::tstring parsers::lrc::expand_text(const LyricData& data, bool merge_equival
         }
     }
 
+    if(purpose == TextPurpose::LocalSave)
+    {
+        for(const auto& tag : furigana::tags_for_save(data))
+            expanded_text += to_tstring(tag) + _T("\r\n");
+    }
     return expanded_text;
 }
 

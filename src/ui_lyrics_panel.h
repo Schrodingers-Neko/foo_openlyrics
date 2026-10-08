@@ -2,9 +2,11 @@
 
 #include "stdafx.h"
 
+#include "furigana_service.h"
 #include "img_processing.h"
 #include "lyric_io.h"
 #include "metadb_index_search_avoidance.h"
+#include "ruby_layout.h"
 
 class LyricPanel : public CWindowImpl<LyricPanel>, protected ui_config_callback_impl, private play_callback
 {
@@ -89,6 +91,13 @@ private:
     void DrawNoLyrics(HDC dc, CRect client_area);
     void DrawUntimedLyrics(HDC dc, CRect client_area);
     void DrawTimestampedLyrics(HDC dc, CRect client_area);
+    int LyricLineHeight(HDC dc, CRect rect, const LyricDataLine& line);
+    int DrawLyricLine(HDC dc, CRect rect, const LyricDataLine& line, CPoint origin);
+    int LyricRubyBand(HDC dc, CRect rect, const LyricDataLine& line);
+    const std::optional<RubyLayout>& GetRubyLayout(HDC dc, CRect rect, const LyricDataLine& line);
+    RubyLayoutCache m_gdi_ruby_cache;
+    CFont m_gdi_ruby_font;
+    LOGFONT m_gdi_ruby_font_spec = {};
 
 protected: // TODO: Only protected to support the external window
     struct PlaybackTimeInfo
@@ -97,6 +106,7 @@ protected: // TODO: Only protected to support the external window
         double track_length;
     };
     PlaybackTimeInfo get_playback_time();
+    int clamp_manual_scroll(int minimum, int maximum);
 
 private:
     bool m_timerRunning = false;
@@ -104,10 +114,23 @@ private:
 
 protected: // TODO: These two are only protected to support the external window
     LyricData m_lyrics;
+    const LyricData& display_lyrics() const;
+    bool reserve_generated_band() const
+    {
+        return m_generation_reserve_band;
+    }
+    void set_source_lyrics(LyricData lyrics);
+    void request_generated_furigana();
+    virtual void clear_ruby_layouts();
     metadb_handle_ptr m_now_playing; // TODO: metadb_handle_v2 when we move to requiring fb2k v2.0
     metadb_v2_rec_t m_now_playing_info;
 
 private:
+    std::optional<LyricData> m_generated_display;
+    std::shared_ptr<void> m_generation_ticket;
+    uint64_t m_generation_panel_id = 0;
+    bool m_force_japanese = false;
+    bool m_generation_reserve_band = false;
     double m_now_playing_time_offset = 0.0;
 
     SearchAvoidanceReason m_auto_search_avoided_reason = SearchAvoidanceReason::Allowed;
@@ -117,7 +140,7 @@ private:
     HBITMAP m_back_buffer_bitmap;
 
     std::optional<CPoint> m_manual_scroll_start;
-    int m_manual_scroll_distance;
+    int m_manual_scroll_distance = 0;
 
     now_playing_album_art_notify* m_albumart_listen_handle = nullptr;
     Image m_albumart_original = {};
@@ -131,5 +154,9 @@ protected: // TODO: Only protected to support the external window
     // most of the above protected members could be made private.
 
     friend void announce_lyric_update(LyricUpdate);
+    friend void refresh_generated_furigana();
+    friend void announce_generated_furigana(uint64_t,
+                                            const std::shared_ptr<void>&,
+                                            furigana_generation::GeneratedAnnotations);
     friend void announce_lyric_search_avoided(metadb_handle_ptr track, SearchAvoidanceReason reason);
 };

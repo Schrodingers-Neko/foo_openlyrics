@@ -27,6 +27,8 @@ namespace
         // out += "Version " OPENLYRICS_VERSION " (" __DATE__ "):\n"
         // "\n";
         out += "Version " OPENLYRICS_VERSION " (" __DATE__ "):\n"
+               "- Display embedded kana furigana in the panel and external lyric window\n"
+               "- Optionally generate Japanese furigana with an offline dictionary\n"
                "- Better support non-latin whitespace characters for word wrapping\n"
                "- Fix auto-search triggering for missing local files\n"
                "- Fix Musixmatch always returning an invalid result\n"

@@ -30,6 +30,7 @@ static const GUID GUID_CFG_DISPLAY_HIGHLIGHT_FADE_TIME = { 0x63c31bb9, 0x2a83, 0
 static const GUID GUID_CFG_DISPLAY_PASTTEXT_COLOUR = { 0x8189faa4, 0x40f2, 0x464b, { 0x9e, 0xb, 0x53, 0xd2, 0x6, 0x9c, 0x74, 0xc9 } };
 static const GUID GUID_CFG_DISPLAY_PASTTEXT_COLOURTYPE = { 0xc7b2908, 0x2ce2, 0x46e8, { 0xa1, 0x46, 0x51, 0xe2, 0x60, 0x0, 0xde, 0xdc } };
 static const GUID GUID_CFG_DISPLAY_TEXT_ALIGNMENT = { 0xfd228452, 0x6374, 0x4496, { 0xb9, 0xec, 0x19, 0xb9, 0x50, 0x2, 0xb, 0xaa } };
+static const GUID GUID_CFG_DISPLAY_FURIGANA = { 0x8dcae30b, 0x51c2, 0x45e8, { 0xa9, 0x11, 0x39, 0x61, 0x24, 0x62, 0x4e, 0xc7 } };
 // clang-format on
 
 static const COLORREF cfg_display_fg_colour_default = RGB(35, 85, 125);
@@ -86,6 +87,7 @@ static cfg_auto_combo<PastTextColourType, 4> cfg_display_pasttext_colour_type(GU
                                                                               PastTextColourType::BlendBackground,
                                                                               g_pasttext_colour_type_options);
 static cfg_auto_int cfg_display_linegap(GUID_CFG_DISPLAY_LINEGAP, IDC_RENDER_LINEGAP_EDIT, 4);
+static cfg_auto_bool cfg_display_furigana(GUID_CFG_DISPLAY_FURIGANA, IDC_DISPLAY_FURIGANA, true);
 static cfg_auto_bool cfg_display_scroll_continuous(GUID_CFG_DISPLAY_SCROLL_CONTINUOUS,
                                                    IDC_DISPLAY_SCROLL_CONTINUOUS,
                                                    false);
@@ -120,6 +122,7 @@ static cfg_auto_property* g_display_auto_properties[] = {
     &cfg_display_scroll_time,      &cfg_display_scroll_type,
 
     &cfg_display_text_alignment,   &cfg_display_highlight_fade_time,
+    &cfg_display_furigana,
 };
 
 //
@@ -142,6 +145,11 @@ t_ui_font preferences::display::font()
         return g_display_font;
     }
     return defaultui::console_font();
+}
+
+bool preferences::display::show_furigana()
+{
+    return cfg_display_furigana.get_value();
 }
 
 t_ui_color preferences::display::main_text_colour()
@@ -275,6 +283,7 @@ public:
     COMMAND_HANDLER_EX(IDC_HIGHLIGHT_COLOUR, BN_CLICKED, OnHlColourChange)
     COMMAND_HANDLER_EX(IDC_PAST_FOREGROUND_COLOUR, BN_CLICKED, OnPastTextColourChange)
     COMMAND_HANDLER_EX(IDC_RENDER_LINEGAP_EDIT, EN_CHANGE, OnUIChange)
+    COMMAND_HANDLER_EX(IDC_DISPLAY_FURIGANA, BN_CLICKED, OnUIChange)
     COMMAND_HANDLER_EX(IDC_DISPLAY_SCROLL_CONTINUOUS, BN_CLICKED, OnScrollContinuousChange)
     COMMAND_HANDLER_EX(IDC_PAST_FOREGROUND_COLOUR_TYPE, CBN_SELCHANGE, OnCustomToggle)
     MESSAGE_HANDLER_EX(WM_CTLCOLORBTN, ColourButtonPreDraw)

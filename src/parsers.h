@@ -9,6 +9,12 @@ namespace parsers
 
     namespace lrc
     {
+        enum class TextPurpose
+        {
+            LocalSave,
+            Editor,
+            Upload,
+        };
         bool is_tag_line(std::string_view line);
         void set_offset_tag(LyricData& lyrics, double offset_seconds);
         void remove_offset_tag(LyricData& lyrics);
@@ -18,8 +24,11 @@ namespace parsers
         bool try_parse_timestamp(std::string_view tag, double& out_timestamp);
 
         LyricData parse(const LyricDataCommon& metadata, std::string_view text_utf8);
+        LyricData parse_editor(const LyricData& previous, std::string_view text_utf8, bool sort_result = true);
 
-        std::tstring expand_text(const LyricData& data, bool merge_equivalent_lrc_lines);
+        std::tstring expand_text(const LyricData& data,
+                                 bool merge_equivalent_lrc_lines,
+                                 TextPurpose purpose = TextPurpose::LocalSave);
     } // namespace lrc
 
 } // namespace parsers

@@ -444,14 +444,14 @@ static void upload_lyrics(LyricData lyrics, const UploadChallenge& challenge, ui
     std::string synced_lyrics;
     if(lyrics.IsTimestamped())
     {
-        synced_lyrics = from_tstring(parsers::lrc::expand_text(lyrics, false));
+        synced_lyrics = from_tstring(parsers::lrc::expand_text(lyrics, false, parsers::lrc::TextPurpose::Upload));
 
         lyrics.RemoveTimestamps();
-        plain_lyrics = from_tstring(parsers::lrc::expand_text(lyrics, false));
+        plain_lyrics = from_tstring(parsers::lrc::expand_text(lyrics, false, parsers::lrc::TextPurpose::Upload));
     }
     else
     {
-        plain_lyrics = from_tstring(parsers::lrc::expand_text(lyrics, false));
+        plain_lyrics = from_tstring(parsers::lrc::expand_text(lyrics, false, parsers::lrc::TextPurpose::Upload));
     }
 
     cJSON* content_root = cJSON_CreateObject();

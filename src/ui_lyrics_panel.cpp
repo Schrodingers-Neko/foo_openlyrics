@@ -16,6 +16,7 @@
 #include "math_util.h"
 #include "metadb_index_search_avoidance.h"
 #include "metrics.h"
+#include "mvtf/mvtf.h"
 #include "preferences.h"
 #include "sources/lyric_source.h"
 #include "tag_util.h"
@@ -33,6 +34,7 @@ namespace
     static UINT_PTR PANEL_UPDATE_TIMER = 2304692;
 
     static std::vector<LyricPanel*> g_active_panels;
+    static uint64_t next_generation_panel_id = 1;
 }
 
 LyricPanel::LyricPanel()
@@ -41,6 +43,74 @@ LyricPanel::LyricPanel()
     , m_lyrics()
 {
     PANEL_UPDATE_TIMER++;
+    m_generation_panel_id = next_generation_panel_id++;
+}
+
+const LyricData& LyricPanel::display_lyrics() const
+{
+    return m_generated_display ? *m_generated_display : m_lyrics;
+}
+
+void LyricPanel::clear_ruby_layouts()
+{
+    m_gdi_ruby_cache.clear();
+}
+
+void LyricPanel::set_source_lyrics(LyricData lyrics)
+{
+    m_lyrics = std::move(lyrics);
+    request_generated_furigana();
+}
+
+void announce_generated_furigana(uint64_t panel_id,
+                                 const std::shared_ptr<void>& ticket,
+                                 furigana_generation::GeneratedAnnotations annotations)
+{
+    if(!furigana_generation::enabled()) return;
+    for(auto* panel : g_active_panels)
+    {
+        if(panel->m_generation_panel_id != panel_id || panel->m_generation_ticket != ticket
+           || annotations.size() != panel->m_lyrics.lines.size())
+            continue;
+        panel->m_generated_display = panel->m_lyrics;
+        for(size_t i = 0; i < annotations.size(); ++i)
+            panel->m_generated_display->lines[i].furigana = std::move(annotations[i]);
+        panel->clear_ruby_layouts();
+        panel->Invalidate();
+    }
+}
+
+void LyricPanel::request_generated_furigana()
+{
+    m_generation_ticket.reset();
+    m_generated_display.reset();
+    clear_ruby_layouts();
+    if(!furigana_generation::enabled()) m_force_japanese = false;
+    const auto service = furigana_generation::service();
+    m_generation_reserve_band = service && furigana_generation::enabled()
+                                && service->status().dictionary == furigana_generation::DictionaryState::Ready
+                                && furigana_generation::eligible(m_lyrics, m_force_japanese);
+    if(m_generation_reserve_band)
+    {
+        m_generation_ticket = std::make_shared<int>(0);
+        std::weak_ptr<void> weak = m_generation_ticket;
+        const uint64_t id = m_generation_panel_id;
+        service->request(
+            m_lyrics,
+            m_force_japanese,
+            [id, weak](auto result)
+            {
+                if(const auto ticket = weak.lock()) announce_generated_furigana(id, ticket, std::move(result));
+            },
+            [weak] { return weak.expired(); });
+    }
+    if(m_hWnd) Invalidate();
+}
+
+void refresh_generated_furigana()
+{
+    for(auto* panel : g_active_panels)
+        panel->request_generated_furigana();
 }
 
 void LyricPanel::on_album_art_retrieved(album_art_data::ptr art_data)
@@ -241,7 +311,8 @@ void LyricPanel::on_playback_new_track(metadb_handle_ptr track)
 
     if(track_changed)
     {
-        m_lyrics = {};
+        m_force_japanese = false;
+        set_source_lyrics({});
     }
 }
 
@@ -257,7 +328,8 @@ void LyricPanel::on_playback_dynamic_info_track(const file_info& info)
 
     m_now_playing_info = meta_record;
     m_manual_scroll_distance = 0;
-    m_lyrics = {};
+    m_force_japanese = false;
+    set_source_lyrics({});
 
     // Set the new "current time" offset/baseline so that we can at least compute timestamps
     // that are approximately-correct for internet radio streams that go beyond a single track.
@@ -278,7 +350,8 @@ void LyricPanel::on_playback_stop(play_control::t_stop_reason reason)
 
     m_now_playing = nullptr;
     m_now_playing_info = {};
-    m_lyrics = {};
+    m_force_japanese = false;
+    set_source_lyrics({});
     m_auto_search_avoided_reason = SearchAvoidanceReason::Allowed;
     StopTimer();
 
@@ -352,6 +425,7 @@ LRESULT LyricPanel::OnWindowCreate(LPCREATESTRUCT /*params*/)
 
 void LyricPanel::OnWindowDestroy()
 {
+    m_generation_ticket.reset();
     play_callback_manager::get()->unregister_callback(this);
 
     if(m_back_buffer_bitmap != nullptr) DeleteObject(m_back_buffer_bitmap);
@@ -554,6 +628,126 @@ static int DrawWrappedLyricLine(HDC dc, CRect clip_rect, const std::tstring_view
     return _WrapCompoundLyricsLineToRect(dc, clip_rect, line, &origin);
 }
 
+static const std::optional<RubyLayout>& get_gdi_ruby_layout(HDC dc,
+                                                            const LyricDataLine& line,
+                                                            const RubyLayoutSettings& settings,
+                                                            RubyLayoutCache& cache,
+                                                            CFont& ruby_font,
+                                                            LOGFONT& font_spec)
+{
+    LOGFONT ruby_font_spec = settings.font;
+    ruby_font_spec.lfHeight = ruby_font_spec.lfHeight < 0 ? -std::max(1L, -ruby_font_spec.lfHeight / 2)
+                                                          : std::max(1L, ruby_font_spec.lfHeight / 2);
+    ruby_font_spec.lfWidth = 0;
+    if(ruby_font.IsNull() || memcmp(&ruby_font_spec, &font_spec, sizeof(ruby_font_spec)) != 0)
+    {
+        if(!ruby_font.IsNull()) ruby_font.DeleteObject();
+        ruby_font.CreateFontIndirect(&ruby_font_spec);
+        font_spec = ruby_font_spec;
+    }
+    return cache.get(line,
+                     settings,
+                     [&](std::tstring_view text, bool ruby) -> std::optional<RubyTextMetrics>
+                     {
+                         if(ruby && ruby_font.IsNull()) return {};
+                         HGDIOBJ previous = ruby ? SelectObject(dc, ruby_font) : nullptr;
+                         SIZE size = {};
+                         TEXTMETRIC metrics = {};
+                         const bool success = GetTextExtentPoint32(dc, text.data(), int(text.size()), &size)
+                                              && GetTextMetrics(dc, &metrics);
+                         if(previous) SelectObject(dc, previous);
+                         if(!success) return {};
+                         return RubyTextMetrics { float(size.cx), float(metrics.tmAscent), float(metrics.tmDescent) };
+                     });
+}
+
+const std::optional<RubyLayout>& LyricPanel::GetRubyLayout(HDC dc, CRect rect, const LyricDataLine& line)
+{
+    RubyLayoutSettings settings;
+    settings.width = float(rect.Width());
+    settings.dpi = float(GetDeviceCaps(dc, LOGPIXELSY));
+    settings.linegap = preferences::display::linegap();
+    settings.alignment = preferences::display::text_alignment();
+    GetObject(GetCurrentObject(dc, OBJ_FONT), sizeof(settings.font), &settings.font);
+    return get_gdi_ruby_layout(dc, line, settings, m_gdi_ruby_cache, m_gdi_ruby_font, m_gdi_ruby_font_spec);
+}
+
+int LyricPanel::LyricLineHeight(HDC dc, CRect rect, const LyricDataLine& line)
+{
+    if(preferences::display::show_furigana() && !line.furigana.empty())
+    {
+        const auto& layout = GetRubyLayout(dc, rect, line);
+        if(layout) return int(std::ceil(layout->height));
+    }
+    return ComputeWrappedLyricLineHeight(dc, rect, line.text);
+}
+
+int LyricPanel::LyricRubyBand(HDC dc, CRect rect, const LyricDataLine& line)
+{
+    if(preferences::display::show_furigana() && !line.furigana.empty())
+    {
+        const auto& layout = GetRubyLayout(dc, rect, line);
+        if(layout) return int(std::ceil(layout->first_ruby_band));
+    }
+    return 0;
+}
+
+static bool draw_gdi_ruby(HDC dc,
+                          CRect rect,
+                          const RubyLayout& layout,
+                          HFONT ruby_font,
+                          int origin_y,
+                          TextAlignment alignment)
+{
+    const int saved = SaveDC(dc);
+    if(saved == 0) return false;
+    IntersectClipRect(dc, rect.left, rect.top, rect.right, rect.bottom);
+    SetTextAlign(dc, TA_LEFT | TA_BASELINE);
+    TEXTMETRIC font_metrics = {};
+    GetTextMetrics(dc, &font_metrics);
+    const float top = float(origin_y - font_metrics.tmAscent);
+    const HFONT base_font = HFONT(GetCurrentObject(dc, OBJ_FONT));
+    bool success = true;
+    for(const auto& row : layout.rows)
+    {
+        const float left = float(rect.left) + ruby_row_left(alignment, float(rect.Width()), row.width);
+        for(const auto& run : row.runs)
+        {
+            SelectObject(dc, base_font);
+            success &= TextOut(dc,
+                               int(std::round(left + run.x + (run.width - run.base_metrics.width) / 2)),
+                               int(std::round(top + row.baseline)),
+                               run.base.data(),
+                               int(run.base.size()))
+                       != FALSE;
+            if(!run.reading.empty())
+            {
+                SelectObject(dc, ruby_font);
+                success &= TextOut(dc,
+                                   int(std::round(left + run.x + (run.width - run.reading_metrics.width) / 2)),
+                                   int(std::round(top + row.ruby_baseline)),
+                                   run.reading.data(),
+                                   int(run.reading.size()))
+                           != FALSE;
+            }
+        }
+    }
+    RestoreDC(dc, saved);
+    return success;
+}
+
+int LyricPanel::DrawLyricLine(HDC dc, CRect rect, const LyricDataLine& line, CPoint origin)
+{
+    if(!preferences::display::show_furigana() || line.furigana.empty())
+        return DrawWrappedLyricLine(dc, rect, line.text, origin);
+    const auto& layout = GetRubyLayout(dc, rect, line);
+    if(!layout || !draw_gdi_ruby(dc, rect, *layout, m_gdi_ruby_font, origin.y, preferences::display::text_alignment()))
+    {
+        return DrawWrappedLyricLine(dc, rect, line.text, origin);
+    }
+    return int(std::ceil(layout->height));
+}
+
 static CPoint get_text_origin(CRect client_rect, TEXTMETRIC& font_metrics)
 {
     const CPoint centre = client_rect.CenterPoint();
@@ -735,6 +929,7 @@ void LyricPanel::DrawNoLyrics(HDC dc, CRect client_rect)
 
 void LyricPanel::DrawUntimedLyrics(HDC dc, CRect client_area)
 {
+    const auto& lyrics = display_lyrics();
     double track_fraction = 0.0;
     if(preferences::display::scroll_type() == LineScrollType::Automatic)
     {
@@ -745,15 +940,29 @@ void LyricPanel::DrawUntimedLyrics(HDC dc, CRect client_area)
     TEXTMETRIC font_metrics = {};
     WIN32_OP_D(GetTextMetrics(dc, &font_metrics))
 
-    const int total_height = std::accumulate(m_lyrics.lines.begin(),
-                                             m_lyrics.lines.end(),
+    const int total_height = std::accumulate(lyrics.lines.begin(),
+                                             lyrics.lines.end(),
                                              0,
-                                             [dc, client_area](int x, const LyricDataLine& line)
-                                             { return x + ComputeWrappedLyricLineHeight(dc, client_area, line.text); });
+                                             [this, dc, client_area](int x, const LyricDataLine& line)
+                                             { return x + LyricLineHeight(dc, client_area, line); });
 
-    const int total_scrollable_height = total_height - font_metrics.tmHeight - preferences::display::linegap();
+    const int first_band = LyricRubyBand(dc, client_area, lyrics.lines.front());
+    const auto& last_line = lyrics.lines.back();
+    int last_baseline_offset = LyricLineHeight(dc, client_area, last_line) - font_metrics.tmHeight
+                               - preferences::display::linegap();
+    if(preferences::display::show_furigana() && !last_line.furigana.empty())
+    {
+        const auto& layout = GetRubyLayout(dc, client_area, last_line);
+        if(layout) last_baseline_offset = int(std::round(layout->rows.back().baseline)) - font_metrics.tmAscent;
+    }
+    const int total_scrollable_height = std::max(0,
+                                                 total_height - LyricLineHeight(dc, client_area, last_line)
+                                                     + last_baseline_offset - first_band);
 
     CPoint origin = get_text_origin(client_area, font_metrics);
+    if(is_text_top_aligned() && reserve_generated_band())
+        origin.y += LyricRubyBand(dc, client_area, generated_reading_band_probe());
+    if(!is_text_top_aligned() || reserve_generated_band()) origin.y -= first_band;
     origin.y -= (int)(track_fraction * total_scrollable_height);
 
     // clang-format off: Don't wrap the calculation lines, even if they're too long
@@ -775,14 +984,14 @@ void LyricPanel::DrawUntimedLyrics(HDC dc, CRect client_area)
     //       and recall that we've already subtracted fraction*total_scrollable_height from origin_y above,
     //       so we don't need to do it again below, we just use the origin value as-is.
     // clang-format on
-    const int min_scroll = font_metrics.tmAscent - total_scrollable_height - origin.y;
+    const int last_band = LyricRubyBand(dc, client_area, last_line);
+    const int min_scroll = font_metrics.tmAscent + last_band - total_scrollable_height - first_band - origin.y;
     const int max_scroll = client_area.Height() - origin.y;
-    m_manual_scroll_distance = std::min(std::max(m_manual_scroll_distance, min_scroll), max_scroll);
-    origin.y += m_manual_scroll_distance;
+    origin.y += clamp_manual_scroll(min_scroll, max_scroll);
 
-    for(const LyricDataLine& line : m_lyrics.lines)
+    for(const LyricDataLine& line : lyrics.lines)
     {
-        int wrapped_line_height = DrawWrappedLyricLine(dc, client_area, line.text, origin);
+        int wrapped_line_height = DrawLyricLine(dc, client_area, line, origin);
         if(wrapped_line_height <= 0)
         {
             LOG_WARN("Failed to draw unsynced text: %d", GetLastError());
@@ -821,6 +1030,7 @@ static LyricScrollPosition get_scroll_position(const LyricData& lyrics, double c
 
 void LyricPanel::DrawTimestampedLyrics(HDC dc, CRect client_area)
 {
+    const auto& lyrics = display_lyrics();
     // NOTE: The drawing call uses the glyph baseline as the origin.
     //       We want our text to be perfectly vertically centered, so we need to offset it
     //       but the difference between the baseline and the vertical centre of the font.
@@ -833,10 +1043,10 @@ void LyricPanel::DrawTimestampedLyrics(HDC dc, CRect client_area)
 
     const PlaybackTimeInfo playback_time = get_playback_time();
     const double scroll_time = preferences::display::scroll_time_seconds();
-    const LyricScrollPosition scroll = get_scroll_position(m_lyrics, playback_time.current_time, scroll_time);
+    const LyricScrollPosition scroll = get_scroll_position(lyrics, playback_time.current_time, scroll_time);
 
     const double fade_duration = preferences::display::highlight_fade_seconds();
-    const LyricScrollPosition fade = get_scroll_position(m_lyrics, playback_time.current_time, fade_duration);
+    const LyricScrollPosition fade = get_scroll_position(lyrics, playback_time.current_time, fade_duration);
 
     int text_height_above_active_line = 0;
     int active_line_height = 0;
@@ -844,21 +1054,29 @@ void LyricPanel::DrawTimestampedLyrics(HDC dc, CRect client_area)
     {
         for(int i = 0; i < scroll.active_line_index; i++)
         {
-            text_height_above_active_line += ComputeWrappedLyricLineHeight(dc, client_area, m_lyrics.lines[i].text);
+            text_height_above_active_line += LyricLineHeight(dc, client_area, lyrics.lines[i]);
         }
-        active_line_height = ComputeWrappedLyricLineHeight(dc,
-                                                           client_area,
-                                                           m_lyrics.lines[scroll.active_line_index].text);
+        active_line_height = LyricLineHeight(dc, client_area, lyrics.lines[scroll.active_line_index]);
     }
 
+    const int active_band = scroll.active_line_index >= 0
+                                ? LyricRubyBand(dc, client_area, lyrics.lines[scroll.active_line_index])
+                                : 0;
+    const int next_band = scroll.active_line_index + 1 < int(lyrics.lines.size())
+                              ? LyricRubyBand(dc, client_area, lyrics.lines[scroll.active_line_index + 1])
+                              : 0;
+    if(!is_text_top_aligned() || reserve_generated_band()) active_line_height += next_band - active_band;
     int next_line_scroll = (int)((double)active_line_height * scroll.next_line_scroll_factor);
     CPoint origin = get_text_origin(client_area, font_metrics);
     origin.y -= text_height_above_active_line + next_line_scroll;
+    if(is_text_top_aligned() && reserve_generated_band())
+        origin.y += LyricRubyBand(dc, client_area, generated_reading_band_probe());
+    if(!is_text_top_aligned() || reserve_generated_band()) origin.y -= active_band;
 
-    const int lyric_line_count = static_cast<int>(m_lyrics.lines.size());
+    const int lyric_line_count = static_cast<int>(lyrics.lines.size());
     for(int line_index = 0; line_index < lyric_line_count; line_index++)
     {
-        const LyricDataLine& line = m_lyrics.lines[line_index];
+        const LyricDataLine& line = lyrics.lines[line_index];
         if(line_index == scroll.active_line_index)
         {
             t_ui_color colour = lerp(hl_colour, past_text_colour, fade.next_line_scroll_factor);
@@ -878,7 +1096,7 @@ void LyricPanel::DrawTimestampedLyrics(HDC dc, CRect client_area)
             SetTextColor(dc, main_text_colour);
         }
 
-        int wrapped_line_height = DrawWrappedLyricLine(dc, client_area, line.text, origin);
+        int wrapped_line_height = DrawLyricLine(dc, client_area, line, origin);
         if(wrapped_line_height == 0)
         {
             LOG_ERROR("Failed to draw synced text");
@@ -1034,6 +1252,7 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
             ID_AUTO_REMOVE_SURROUNDING_SPACE,
             ID_DELETE_CURRENT_LYRICS,
             ID_OPEN_EXTERNAL_WINDOW,
+            ID_GENERATE_FURIGANA,
             ID_CMD_COUNT,
         };
 
@@ -1061,6 +1280,11 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
         AppendMenu(menu, MF_STRING | disabled_without_nowplaying | disabled_without_lyrics, ID_SHOW_LYRIC_INFO, _T("About current lyrics"));
         AppendMenu(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenu(menu, MF_STRING | disabled_without_nowplaying, ID_EDIT_LYRICS, _T("Edit lyrics"));
+        const auto generation_service = furigana_generation::service();
+        const bool generation_ready = generation_service && furigana_generation::enabled()
+                                      && generation_service->status().dictionary == furigana_generation::DictionaryState::Ready;
+        AppendMenu(menu, MF_STRING | (generation_ready ? disabled_without_nowplaying | disabled_without_lyrics | (m_lyrics.has_kana_metadata ? MF_GRAYED : 0) : 0),
+                   ID_GENERATE_FURIGANA, generation_ready ? _T("Generate furigana for these lyrics") : _T("Set up generated furigana..."));
         AppendMenu(menu, MF_STRING | MF_POPUP, (UINT_PTR)menu_edit.m_hMenu, _T("Auto-edit lyrics"));
         AppendMenu(menu, MF_STRING, ID_OPEN_EXTERNAL_WINDOW, _T("Open external window (experimental)"));
         AppendMenu(menu, MF_STRING | disabled_without_nowplaying | disabled_without_lyrics, ID_OPEN_FILE_DIR, _T("Open file location"));
@@ -1103,7 +1327,7 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
             {
                 if(m_now_playing == nullptr) break;
 
-                m_lyrics = {};
+                set_source_lyrics({});
                 const bool ignore_search_avoidance = true;
                 initiate_lyrics_autosearch(m_now_playing, m_now_playing_info, ignore_search_avoidance);
             }
@@ -1150,6 +1374,25 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
             case ID_PREFERENCES:
             {
                 ui_control::get()->show_preferences(GUID_PREFERENCES_PAGE_ROOT);
+            }
+            break;
+
+            case ID_GENERATE_FURIGANA:
+            {
+                const auto service = furigana_generation::service();
+                if(!service || !furigana_generation::enabled()
+                   || service->status().dictionary != furigana_generation::DictionaryState::Ready)
+                    furigana_generation::show_preferences();
+                else
+                {
+                    // Share the explicit language choice across windows displaying this track.
+                    for(auto* panel : g_active_panels)
+                        if(panel->m_now_playing == m_now_playing)
+                        {
+                            panel->m_force_japanese = true;
+                            panel->request_generated_furigana();
+                        }
+                }
             }
             break;
 
@@ -1253,7 +1496,7 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
                 if(!m_lyrics.IsEmpty())
                 {
                     io::delete_saved_lyrics(m_now_playing, m_lyrics);
-                    m_lyrics = {};
+                    set_source_lyrics({});
                 }
                 search_avoidance_force_by_mark_instrumental(m_now_playing, m_now_playing_info);
             }
@@ -1352,7 +1595,7 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
                 bool deleted = io::delete_saved_lyrics(m_now_playing, m_lyrics);
                 if(deleted)
                 {
-                    m_lyrics = {};
+                    set_source_lyrics({});
                 }
             }
             break;
@@ -1375,7 +1618,7 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
                 LyricUpdate::Type::Edit,
             });
             assert(maybe_lyrics.has_value()); // Round-trip through the processing to avoid copies
-            m_lyrics = std::move(maybe_lyrics.value());
+            set_source_lyrics(std::move(maybe_lyrics.value()));
         }
     }
     catch(std::exception const& e)
@@ -1453,6 +1696,90 @@ void LyricPanel::StartTimer()
     }
 }
 
+int LyricPanel::clamp_manual_scroll(int minimum, int maximum)
+{
+    m_manual_scroll_distance = std::clamp(m_manual_scroll_distance, minimum, std::max(minimum, maximum));
+    return m_manual_scroll_distance;
+}
+
+#if MVTF_TESTS_ENABLED
+#include "ruby_test.h"
+
+MVTF_TEST(furigana_gdi_offscreen_rendering)
+{
+    constexpr int width = 600;
+    constexpr int height = 1920;
+    HDC dc = CreateCompatibleDC(nullptr);
+    ASSERT(dc != nullptr);
+    BITMAPINFO info = {};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width;
+    info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    void* memory = nullptr;
+    HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, &memory, nullptr, 0);
+    ASSERT(bitmap != nullptr);
+    HGDIOBJ old_bitmap = SelectObject(dc, bitmap);
+    memset(memory, 255, width * height * 4);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(30, 70, 120));
+    RubyLayoutCache cache;
+    CFont ruby_font;
+    LOGFONT ruby_spec = {};
+    const auto embedded_line = ruby_test_line();
+    const auto generated_line = generated_ruby_test_line();
+    bool success = true;
+    for(int i = 0; i < 6; ++i)
+    {
+        const auto& line = i == 2 || i == 5 ? generated_line : embedded_line;
+        RubyLayoutSettings settings;
+        settings.width = i < 3 ? 540.0f : 160.0f;
+        settings.dpi = i < 3 ? 96.0f : 144.0f;
+        settings.linegap = 4;
+        settings.alignment = TextAlignment(i);
+        settings.font.lfHeight = i < 3 ? -24 : -36;
+        settings.font.lfCharSet = DEFAULT_CHARSET;
+        _tcscpy_s(settings.font.lfFaceName,
+                  i == 1   ? _T("Segoe UI")
+                  : i == 2 ? _T("Missing Furigana Font")
+                           : _T("Yu Gothic"));
+        SetTextColor(dc, i == 1 ? RGB(225, 65, 60) : i == 2 ? RGB(130, 130, 130) : RGB(30, 70, 120));
+        HFONT font = CreateFontIndirect(&settings.font);
+        HGDIOBJ old_font = SelectObject(dc, font);
+        const auto& layout = get_gdi_ruby_layout(dc, line, settings, cache, ruby_font, ruby_spec);
+        if(!layout)
+            success = false;
+        else
+        {
+            TEXTMETRIC metrics = {};
+            GetTextMetrics(dc, &metrics);
+            const int top = 8 + i * 320;
+            success &= draw_gdi_ruby(dc,
+                                     CRect(20, top, 20 + int(settings.width), top + 300),
+                                     *layout,
+                                     ruby_font,
+                                     top + metrics.tmAscent,
+                                     settings.alignment);
+            success &= layout->first_ruby_band > 0 && layout->height > float(metrics.tmHeight);
+        }
+        SelectObject(dc, old_font);
+        DeleteObject(font);
+    }
+    GdiFlush();
+    size_t colored = 0;
+    const auto* pixels = static_cast<const uint8_t*>(memory);
+    for(size_t i = 0; i < width * height * 4; i += 4)
+        colored += pixels[i] != 255;
+    success &= colored > 1000;
+    success &= save_ruby_test_bitmap(_T("furigana-gdi.bmp"), width, height, width * 4, pixels);
+    SelectObject(dc, old_bitmap);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    ASSERT(success);
+}
+#endif
+
 void LyricPanel::StopTimer()
 {
     if(!m_timerRunning) return;
@@ -1494,6 +1821,7 @@ void announce_lyric_update(LyricUpdate lyric_update)
         {
             metadb_v2_rec_t track_info =
                 update.track_info; // Copy this out so we can move update into process_available_lyric_update
+            const auto track = update.track;
             std::optional<LyricData> maybe_lyrics = io::process_available_lyric_update(std::move(update));
             if(maybe_lyrics.has_value())
             {
@@ -1505,12 +1833,12 @@ void announce_lyric_update(LyricUpdate lyric_update)
                 for(LyricPanel* panel : g_active_panels)
                 {
                     assert(panel != nullptr);
-                    if(update.track != panel->m_now_playing)
+                    if(track != panel->m_now_playing)
                     {
                         continue;
                     }
 
-                    panel->m_lyrics = maybe_lyrics.value();
+                    panel->set_source_lyrics(maybe_lyrics.value());
                     panel->m_auto_search_avoided_reason = SearchAvoidanceReason::Allowed;
                     ::InvalidateRect(panel->m_hWnd, nullptr, TRUE);
                 }
@@ -1532,7 +1860,7 @@ void announce_lyric_search_avoided(metadb_handle_ptr track, SearchAvoidanceReaso
                     continue;
                 }
 
-                panel->m_lyrics = {};
+                panel->set_source_lyrics({});
                 panel->m_auto_search_avoided_reason = avoid_reason;
                 panel->m_auto_search_avoided_timestamp = avoided_timestamp;
                 ::InvalidateRect(panel->m_hWnd, nullptr, TRUE);

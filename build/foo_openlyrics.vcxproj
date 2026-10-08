@@ -85,18 +85,18 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration)/mecab/source;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration);$(SolutionDir)/../3rdparty/miniz-3.0.2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <FloatingPointModel>Fast</FloatingPointModel>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <PreprocessorDefinitions>BUILDING_OPENLYRICS_DLL;TIDY_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MECAB_STATIC;MINIZ_NO_STDIO;MINIZ_NO_ARCHIVE_WRITING_APIS;BUILDING_OPENLYRICS_DLL;TIDY_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
       <TreatWarningAsError>true</TreatWarningAsError>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;$(OutDir)mecab-static.lib;$(OutDir)miniz.lib;Normaliz.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
       <Command>pwsh $(SolutionDir)generate_version_header.ps1 -output_path $(TargetDir)generated\openlyrics_version_generated.h
@@ -107,15 +107,15 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration)/mecab/source;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration);$(SolutionDir)/../3rdparty/miniz-3.0.2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <FloatingPointModel>Fast</FloatingPointModel>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <PreprocessorDefinitions>BUILDING_OPENLYRICS_DLL;TIDY_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MECAB_STATIC;MINIZ_NO_STDIO;MINIZ_NO_ARCHIVE_WRITING_APIS;BUILDING_OPENLYRICS_DLL;TIDY_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;$(OutDir)mecab-static.lib;$(OutDir)miniz.lib;Normaliz.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -141,11 +141,11 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration)/mecab/source;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration);$(SolutionDir)/../3rdparty/miniz-3.0.2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <FloatingPointModel>Fast</FloatingPointModel>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
-      <PreprocessorDefinitions>BUILDING_OPENLYRICS_DLL;TIDY_STATIC;NDEBUG;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MECAB_STATIC;MINIZ_NO_STDIO;MINIZ_NO_ARCHIVE_WRITING_APIS;BUILDING_OPENLYRICS_DLL;TIDY_STATIC;NDEBUG;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <TreatWarningAsError>false</TreatWarningAsError>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -153,7 +153,7 @@
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;$(OutDir)mecab-static.lib;$(OutDir)miniz.lib;Normaliz.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PreBuildEvent>
       <Command>pwsh $(SolutionDir)generate_version_header.ps1 -output_path $(TargetDir)generated\openlyrics_version_generated.h
@@ -168,17 +168,17 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <ConformanceMode>false</ConformanceMode>
-      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(TargetDir)generated;$(SolutionDir)/../src;$(SolutionDir)/../3rdparty/stb;$(SolutionDir)/../3rdparty/foo_SDK;$(SolutionDir)/../3rdparty/foo_SDK/foobar2000;$(SolutionDir)/../3rdparty/columns_ui-sdk-7.0.0-beta.2;$(SolutionDir)/../3rdparty/WTL10_10320_Release/Include;$(SolutionDir)/../3rdparty/cJSON;$(SolutionDir)/../3rdparty/pugixml-1.12.1/src;$(SolutionDir)/../3rdparty/tidy-html5-5.8.0/include;$(SolutionDir)/../3rdparty/libdivide;$(SolutionDir)/../3rdparty/curl-8.16.0/include;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration)/mecab/source;$(SolutionDir)intermediate/cmake-build/$(Platform)/$(Configuration);$(SolutionDir)/../3rdparty/miniz-3.0.2;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <FloatingPointModel>Fast</FloatingPointModel>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <PrecompiledHeader>Use</PrecompiledHeader>
-      <PreprocessorDefinitions>BUILDING_OPENLYRICS_DLL;TIDY_STATIC;NDEBUG;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>MECAB_STATIC;MINIZ_NO_STDIO;MINIZ_NO_ARCHIVE_WRITING_APIS;BUILDING_OPENLYRICS_DLL;TIDY_STATIC;NDEBUG;_WINDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
-      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)/../3rdparty/foo_SDK/foobar2000/shared/shared-$(Platform).lib;$(OutDir)libcurl.lib;$(OutDir)nghttp2.lib;$(OutDir)mecab-static.lib;$(OutDir)miniz.lib;Normaliz.lib;bcrypt.lib;Crypt32.lib;d2d1.lib;d3d11.lib;dwrite.lib;dxguid.lib;Iphlpapi.lib;Secur32.lib;windowscodecs.lib;Ws2_32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -222,6 +222,12 @@
     <ClCompile Include="..\src\config\ui_preferences_src_musixmatch.cpp" />
     <ClCompile Include="..\src\config\ui_preferences_upload.cpp" />
     <ClCompile Include="..\src\hash_utils.cpp" />
+    <ClCompile Include="..\src\furigana.cpp" />
+    <ClCompile Include="..\src\furigana_generator.cpp" />
+    <ClCompile Include="..\src\furigana_dictionary.cpp" />
+    <ClCompile Include="..\src\furigana_service.cpp" />
+    <ClCompile Include="..\src\config\ui_preferences_furigana.cpp" />
+    <ClCompile Include="..\src\ruby_layout.cpp" />
     <ClCompile Include="..\src\http.cpp" />
     <ClCompile Include="..\src\img_processing.cpp" />
     <ClCompile Include="..\src\logging.cpp" />
@@ -285,6 +291,12 @@
     <ClInclude Include="..\src\config\config_auto.h" />
     <ClInclude Include="..\src\config\config_font.h" />
     <ClInclude Include="..\src\hash_utils.h" />
+    <ClInclude Include="..\src\furigana.h" />
+    <ClInclude Include="..\src\furigana_generator.h" />
+    <ClInclude Include="..\src\furigana_dictionary.h" />
+    <ClInclude Include="..\src\furigana_service.h" />
+    <ClInclude Include="..\src\ruby_layout.h" />
+    <ClInclude Include="..\src\ruby_test.h" />
     <ClInclude Include="..\src\http.h" />
     <ClInclude Include="..\src\img_processing.h" />
     <ClInclude Include="..\src\logging.h" />

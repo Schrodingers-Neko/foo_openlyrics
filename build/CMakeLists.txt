@@ -25,3 +25,13 @@ set(NGHTTP2_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../3rdparty/nghttp2-1.67.1/li
 set(NGHTTP2_LIBRARY "unused") # We're only building a static lib for curl so linking with nghttp2 isn't a concern here
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../3rdparty/curl-8.16.0 ${CMAKE_CURRENT_BINARY_DIR}/libcurl)
 target_compile_definitions(libcurl_object PRIVATE NGHTTP2_STATICLIB)
+
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../3rdparty/mecab-support ${CMAKE_CURRENT_BINARY_DIR}/mecab)
+
+set(MINIZ_SOURCE ${CMAKE_CURRENT_LIST_DIR}/../3rdparty/miniz-3.0.2)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/miniz_export.h" "#pragma once\n#define MINIZ_EXPORT\n")
+add_library(miniz STATIC ${MINIZ_SOURCE}/miniz.c ${MINIZ_SOURCE}/miniz_zip.c
+    ${MINIZ_SOURCE}/miniz_tinfl.c ${MINIZ_SOURCE}/miniz_tdef.c)
+target_include_directories(miniz PUBLIC ${MINIZ_SOURCE} ${CMAKE_CURRENT_BINARY_DIR})
+target_compile_definitions(miniz PUBLIC MINIZ_NO_STDIO MINIZ_NO_ARCHIVE_WRITING_APIS)
+target_compile_options(miniz PRIVATE /W0)

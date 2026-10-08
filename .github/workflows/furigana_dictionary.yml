@@ -1,0 +1,38 @@
+name: Build optional furigana dictionary
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'furigana-dictionary-ipadic-20070801-v1'
+jobs:
+  build-dictionary:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.7'
+      - name: Build reproducible optional asset
+        shell: pwsh
+        run: ./build/build_furigana_dictionary.ps1 -Platform x64 -Configuration Release
+      - name: Verify pinned archive
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash build/furigana-dictionary/openlyrics-ipadic-utf8-20070801-v1.zip -Algorithm SHA256).Hash
+          if ($hash -ne '3DF6F40DFB4D7DDB558299EC4F39DC79CA32CD5ACE076EB7BF61FE86F3D49412') { throw 'Dictionary reproducibility check failed' }
+      - name: Retain optional artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openlyrics-ipadic-utf8-20070801-v1
+          path: build/furigana-dictionary/openlyrics-ipadic-utf8-20070801-v1.zip
+      - name: Publish versioned dictionary data
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME build/furigana-dictionary/openlyrics-ipadic-utf8-20070801-v1.zip --verify-tag --title 'Optional Japanese reading dictionary (IPADIC)' --notes-file investigation/furigana-dictionary-release.md --prerelease --latest=false

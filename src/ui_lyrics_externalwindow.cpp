@@ -20,6 +20,7 @@
 #include "ui_hooks.h"
 #include "ui_lyrics_panel.h"
 
+#include "mvtf/mvtf.h"
 #include "timer_block.h"
 
 // clang-format off: GUIDs should be one line
@@ -50,6 +51,9 @@ struct D2DTextRenderContext
 
     int font_ascent_px;
     int font_descent_px;
+    RubyLayoutCache* ruby_cache;
+    LOGFONT ruby_font_spec;
+    TextAlignment ruby_alignment = TextAlignment::MidCentre;
 };
 
 // Refer to https://kubyshkin.name/posts/win32-window-custom-title-bar-caption/ for details on rendering borderless
@@ -83,8 +87,14 @@ public:
 
 private:
     void DrawNoLyrics(D2DTextRenderContext& render);
-    void DrawUntimedLyrics(LyricData& lyrics, D2DTextRenderContext& render);
+    void DrawUntimedLyrics(const LyricData& lyrics, D2DTextRenderContext& render);
     void DrawTimestampedLyrics(D2DTextRenderContext& render);
+    void clear_ruby_layouts() override
+    {
+        LyricPanel::clear_ruby_layouts();
+        m_dwrite_ruby_cache.clear();
+    }
+    RubyLayoutCache m_dwrite_ruby_cache;
 
     HMODULE m_direct_composition = nullptr;
 
@@ -512,6 +522,219 @@ static int DrawWrappedLyricLine(D2DTextRenderContext& render,
     return _WrapCompoundLyricsLineToRect(render, canvas_size, line, origin_y, true);
 }
 
+static const std::optional<RubyLayout>& D2DGetRubyLayout(D2DTextRenderContext& render,
+                                                         D2D1_SIZE_F size,
+                                                         const LyricDataLine& line)
+{
+    RubyLayoutSettings settings;
+    settings.width = size.width;
+    float dpi_x;
+    render.device->GetDpi(&dpi_x, &settings.dpi);
+    settings.linegap = preferences::display::linegap();
+    settings.alignment = render.ruby_alignment;
+    settings.font = render.ruby_font_spec;
+    Microsoft::WRL::ComPtr<IDWriteFactory> factory;
+    return render.ruby_cache->get(
+        line,
+        settings,
+        [&](std::tstring_view text, bool ruby) -> std::optional<RubyTextMetrics>
+        {
+            if(!factory
+               && FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+                                             __uuidof(IDWriteFactory),
+                                             reinterpret_cast<IUnknown**>(factory.GetAddressOf()))))
+                return {};
+            IDWriteTextLayout* layout = nullptr;
+            if(FAILED(factory->CreateTextLayout(text.data(),
+                                                UINT32(text.size()),
+                                                render.text_format,
+                                                1000000,
+                                                1000000,
+                                                &layout)))
+                return {};
+            std::shared_ptr<IUnknown> owned(layout, [](IUnknown* value) { value->Release(); });
+            if(FAILED(layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING))
+               || FAILED(layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR))
+               || FAILED(layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)))
+                return {};
+            if(ruby
+               && FAILED(layout->SetFontSize(render.text_format->GetFontSize() * 0.5f, { 0, UINT32(text.size()) })))
+                return {};
+            DWRITE_TEXT_METRICS metrics = {};
+            DWRITE_LINE_METRICS row = {};
+            UINT32 count = 0;
+            if(FAILED(layout->GetMetrics(&metrics)) || FAILED(layout->GetLineMetrics(&row, 1, &count))) return {};
+            return RubyTextMetrics { metrics.widthIncludingTrailingWhitespace,
+                                     row.baseline,
+                                     row.height - row.baseline,
+                                     std::move(owned) };
+        });
+}
+
+static int D2DLyricLineHeight(D2DTextRenderContext& render, D2D1_SIZE_F size, const LyricDataLine& line)
+{
+    if(preferences::display::show_furigana() && !line.furigana.empty())
+    {
+        const auto& layout = D2DGetRubyLayout(render, size, line);
+        if(layout) return int(std::ceil(layout->height));
+    }
+    return ComputeWrappedLyricLineHeight(render, size, line.text);
+}
+
+static int D2DLyricRubyBand(D2DTextRenderContext& render, D2D1_SIZE_F size, const LyricDataLine& line)
+{
+    if(preferences::display::show_furigana() && !line.furigana.empty())
+    {
+        const auto& layout = D2DGetRubyLayout(render, size, line);
+        if(layout) return int(std::ceil(layout->first_ruby_band));
+    }
+    return 0;
+}
+
+static int D2DDrawLyricLine(D2DTextRenderContext& render, D2D1_SIZE_F size, const LyricDataLine& line, int origin_y)
+{
+    if(!preferences::display::show_furigana() || line.furigana.empty())
+        return DrawWrappedLyricLine(render, size, line.text, origin_y);
+    const auto& layout = D2DGetRubyLayout(render, size, line);
+    if(!layout) return DrawWrappedLyricLine(render, size, line.text, origin_y);
+    render.device->PushAxisAlignedClip(D2D1::RectF(0, 0, size.width, size.height), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    for(const auto& row : layout->rows)
+    {
+        const float left = ruby_row_left(render.ruby_alignment, size.width, row.width);
+        for(const auto& run : row.runs)
+        {
+            auto* base = static_cast<IDWriteTextLayout*>(run.base_metrics.native_layout.get());
+            render.device->DrawTextLayout({ left + run.x + (run.width - run.base_metrics.width) / 2,
+                                            float(origin_y) + row.baseline - run.base_metrics.ascent },
+                                          base,
+                                          render.brush,
+                                          D2D1_DRAW_TEXT_OPTIONS_NO_SNAP);
+            if(!run.reading.empty())
+            {
+                auto* reading = static_cast<IDWriteTextLayout*>(run.reading_metrics.native_layout.get());
+                render.device->DrawTextLayout({ left + run.x + (run.width - run.reading_metrics.width) / 2,
+                                                float(origin_y) + row.ruby_baseline - run.reading_metrics.ascent },
+                                              reading,
+                                              render.brush,
+                                              D2D1_DRAW_TEXT_OPTIONS_NO_SNAP);
+            }
+        }
+    }
+    render.device->PopAxisAlignedClip();
+    return int(std::ceil(layout->height));
+}
+
+#if MVTF_TESTS_ENABLED
+#include "ruby_test.h"
+
+MVTF_TEST(furigana_dwrite_offscreen_rendering)
+{
+    constexpr UINT width = 600;
+    constexpr UINT height = 1920;
+    Microsoft::WRL::ComPtr<ID3D11Device> d3d;
+    ASSERT(SUCCEEDED(D3D11CreateDevice(nullptr,
+                                       D3D_DRIVER_TYPE_WARP,
+                                       nullptr,
+                                       D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                       nullptr,
+                                       0,
+                                       D3D11_SDK_VERSION,
+                                       &d3d,
+                                       nullptr,
+                                       nullptr)));
+    Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
+    ASSERT(SUCCEEDED(d3d.As(&dxgi)));
+    Microsoft::WRL::ComPtr<ID2D1Device> device;
+    ASSERT(SUCCEEDED(D2D1CreateDevice(dxgi.Get(), nullptr, &device)));
+    Microsoft::WRL::ComPtr<ID2D1DeviceContext> dc;
+    ASSERT(SUCCEEDED(device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc)));
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> target;
+    auto properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_TARGET,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    ASSERT(SUCCEEDED(dc->CreateBitmap({ width, height }, nullptr, 0, properties, &target)));
+    dc->SetTarget(target.Get());
+    Microsoft::WRL::ComPtr<IDWriteFactory> factory;
+    ASSERT(SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
+                                         __uuidof(IDWriteFactory),
+                                         reinterpret_cast<IUnknown**>(factory.GetAddressOf()))));
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> format;
+    ASSERT(SUCCEEDED(factory->CreateTextFormat(_T("Yu Gothic"),
+                                               nullptr,
+                                               DWRITE_FONT_WEIGHT_NORMAL,
+                                               DWRITE_FONT_STYLE_NORMAL,
+                                               DWRITE_FONT_STRETCH_NORMAL,
+                                               24,
+                                               _T("ja-jp"),
+                                               &format)));
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
+    ASSERT(SUCCEEDED(dc->CreateSolidColorBrush(D2D1::ColorF(0.12f, 0.27f, 0.47f), &brush)));
+    RubyLayoutCache cache;
+    D2DTextRenderContext render = {};
+    render.device = dc.Get();
+    render.text_format = format.Get();
+    render.brush = brush.Get();
+    render.ruby_cache = &cache;
+    render.ruby_font_spec.lfHeight = -24;
+    _tcscpy_s(render.ruby_font_spec.lfFaceName, _T("Yu Gothic"));
+    const auto embedded_line = ruby_test_line();
+    const auto generated_line = generated_ruby_test_line();
+    dc->BeginDraw();
+    dc->Clear(D2D1::ColorF(1, 1, 1));
+    bool success = true;
+    for(int i = 0; i < 6; ++i)
+    {
+        const auto& line = i == 2 || i == 5 ? generated_line : embedded_line;
+        const TCHAR* family = i == 1 ? _T("Segoe UI") : i == 2 ? _T("Missing Furigana Font") : _T("Yu Gothic");
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> row_format;
+        ASSERT(SUCCEEDED(factory->CreateTextFormat(family,
+                                                   nullptr,
+                                                   DWRITE_FONT_WEIGHT_NORMAL,
+                                                   DWRITE_FONT_STYLE_NORMAL,
+                                                   DWRITE_FONT_STRETCH_NORMAL,
+                                                   24,
+                                                   _T("ja-jp"),
+                                                   &row_format)));
+        render.text_format = row_format.Get();
+        _tcscpy_s(render.ruby_font_spec.lfFaceName, family);
+        brush->SetColor(i == 1   ? D2D1::ColorF(0.88f, 0.25f, 0.24f)
+                        : i == 2 ? D2D1::ColorF(0.51f, 0.51f, 0.51f)
+                                 : D2D1::ColorF(0.12f, 0.27f, 0.47f));
+        const float dpi = i < 3 ? 96.0f : 144.0f;
+        const D2D1_SIZE_F size { i < 3 ? 540.0f : 160.0f, float(height) * 96.0f / dpi };
+        render.ruby_alignment = TextAlignment(i);
+        // The same cached drawing path as the external window; alternate DPI and clipping widths.
+        dc->SetDpi(dpi, dpi);
+        dc->SetTransform(D2D1::Matrix3x2F::Translation(20, 0));
+        const auto& layout = D2DGetRubyLayout(render, size, line);
+        if(!layout)
+            success = false;
+        else
+            success &= layout->first_ruby_band > 0;
+        const float top = float(8 + i * 320) * 96.0f / dpi;
+        dc->PushAxisAlignedClip(D2D1::RectF(0, top, size.width, top + 300 * 96.0f / dpi),
+                                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        success &= D2DDrawLyricLine(render, size, line, int(top)) > 0;
+        dc->PopAxisAlignedClip();
+    }
+    success &= SUCCEEDED(dc->EndDraw());
+    properties.bitmapOptions = D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> readable;
+    ASSERT(SUCCEEDED(dc->CreateBitmap({ width, height }, nullptr, 0, properties, &readable)));
+    ASSERT(SUCCEEDED(readable->CopyFromBitmap(nullptr, target.Get(), nullptr)));
+    D2D1_MAPPED_RECT mapped = {};
+    ASSERT(SUCCEEDED(readable->Map(D2D1_MAP_OPTIONS_READ, &mapped)));
+    size_t colored = 0;
+    for(UINT y = 0; y < height; ++y)
+        for(UINT x = 0; x < width; ++x)
+            colored += mapped.bits[size_t(y) * mapped.pitch + x * 4] != 255;
+    success &= colored > 1000;
+    success &= save_ruby_test_bitmap(_T("furigana-dwrite.bmp"), width, height, mapped.pitch, mapped.bits);
+    readable->Unmap();
+    ASSERT(success);
+}
+#endif
+
 D2D1::ColorF colour_gdi2dx(COLORREF in)
 {
     const float normalize_byte = 1.0f / 255.0f;
@@ -597,7 +820,7 @@ void ExternalLyricWindow::DrawNoLyrics(D2DTextRenderContext& render)
     }
 }
 
-void ExternalLyricWindow::DrawUntimedLyrics(LyricData& lyrics, D2DTextRenderContext& render)
+void ExternalLyricWindow::DrawUntimedLyrics(const LyricData& lyrics, D2DTextRenderContext& render)
 {
     TIME_FUNCTION();
     double track_fraction = 0.0;
@@ -608,21 +831,36 @@ void ExternalLyricWindow::DrawUntimedLyrics(LyricData& lyrics, D2DTextRenderCont
     }
 
     const D2D1_SIZE_F canvas_size = render.device->GetSize();
-    const int total_height = std::accumulate(
-        lyrics.lines.begin(),
-        lyrics.lines.end(),
-        0,
-        [&render, canvas_size](int x, const LyricDataLine& line)
-        { return x + ComputeWrappedLyricLineHeight(render, canvas_size, line.text); });
-    const int total_scrollable_height = total_height - (render.font_ascent_px + render.font_descent_px)
-                                        - preferences::display::linegap();
+    const int total_height = std::accumulate(lyrics.lines.begin(),
+                                             lyrics.lines.end(),
+                                             0,
+                                             [&render, canvas_size](int x, const LyricDataLine& line)
+                                             { return x + D2DLyricLineHeight(render, canvas_size, line); });
+    const int first_band = D2DLyricRubyBand(render, canvas_size, lyrics.lines.front());
+    const auto& last_line = lyrics.lines.back();
+    int last_baseline_offset = D2DLyricLineHeight(render, canvas_size, last_line)
+                               - (render.font_ascent_px + render.font_descent_px) - preferences::display::linegap();
+    if(preferences::display::show_furigana() && !last_line.furigana.empty())
+    {
+        const auto& layout = D2DGetRubyLayout(render, canvas_size, last_line);
+        if(layout) last_baseline_offset = int(std::round(layout->rows.back().baseline)) - render.font_ascent_px;
+    }
+    const int total_scrollable_height = std::max(0,
+                                                 total_height - D2DLyricLineHeight(render, canvas_size, last_line)
+                                                     + last_baseline_offset - first_band);
 
     int origin_y = get_text_origin_y(canvas_size, render.font_ascent_px, render.font_descent_px);
+    if(is_text_top_aligned() && reserve_generated_band())
+        origin_y += D2DLyricRubyBand(render, canvas_size, generated_reading_band_probe());
+    if(!is_text_top_aligned() || reserve_generated_band()) origin_y -= first_band;
     origin_y -= int(track_fraction * total_scrollable_height);
+    const int last_band = D2DLyricRubyBand(render, canvas_size, last_line);
+    origin_y += clamp_manual_scroll(last_band - total_scrollable_height - first_band - origin_y,
+                                    int(canvas_size.height) - origin_y);
 
     for(const LyricDataLine& line : lyrics.lines)
     {
-        int wrapped_line_height = DrawWrappedLyricLine(render, canvas_size, line.text, origin_y);
+        int wrapped_line_height = D2DDrawLyricLine(render, canvas_size, line, origin_y);
         if(wrapped_line_height <= 0)
         {
             LOG_WARN("Failed to draw unsynced text: 0x%x", GetLastError());
@@ -660,6 +898,7 @@ static LyricScrollPosition get_scroll_position(const LyricData& lyrics, double c
 
 void ExternalLyricWindow::DrawTimestampedLyrics(D2DTextRenderContext& render)
 {
+    const auto& lyrics = display_lyrics();
     const D2D1_SIZE_F canvas_size = render.device->GetSize();
 
     const t_ui_color past_text_colour = preferences::display::past_text_colour();
@@ -668,10 +907,10 @@ void ExternalLyricWindow::DrawTimestampedLyrics(D2DTextRenderContext& render)
 
     const PlaybackTimeInfo playback_time = get_playback_time();
     const double scroll_time = preferences::display::scroll_time_seconds();
-    const LyricScrollPosition scroll = get_scroll_position(m_lyrics, playback_time.current_time, scroll_time);
+    const LyricScrollPosition scroll = get_scroll_position(lyrics, playback_time.current_time, scroll_time);
 
     const double fade_duration = preferences::display::highlight_fade_seconds();
-    const LyricScrollPosition fade = get_scroll_position(m_lyrics, playback_time.current_time, fade_duration);
+    const LyricScrollPosition fade = get_scroll_position(lyrics, playback_time.current_time, fade_duration);
 
     int text_height_above_active_line = 0;
     int active_line_height = 0;
@@ -679,21 +918,29 @@ void ExternalLyricWindow::DrawTimestampedLyrics(D2DTextRenderContext& render)
     {
         for(int i = 0; i < scroll.active_line_index; i++)
         {
-            text_height_above_active_line += ComputeWrappedLyricLineHeight(render, canvas_size, m_lyrics.lines[i].text);
+            text_height_above_active_line += D2DLyricLineHeight(render, canvas_size, lyrics.lines[i]);
         }
-        active_line_height = ComputeWrappedLyricLineHeight(render,
-                                                           canvas_size,
-                                                           m_lyrics.lines[scroll.active_line_index].text);
+        active_line_height = D2DLyricLineHeight(render, canvas_size, lyrics.lines[scroll.active_line_index]);
     }
 
+    const int active_band = scroll.active_line_index >= 0
+                                ? D2DLyricRubyBand(render, canvas_size, lyrics.lines[scroll.active_line_index])
+                                : 0;
+    const int next_band = scroll.active_line_index + 1 < int(lyrics.lines.size())
+                              ? D2DLyricRubyBand(render, canvas_size, lyrics.lines[scroll.active_line_index + 1])
+                              : 0;
+    if(!is_text_top_aligned() || reserve_generated_band()) active_line_height += next_band - active_band;
     int next_line_scroll = (int)((double)active_line_height * scroll.next_line_scroll_factor);
     int origin_y = get_text_origin_y(canvas_size, render.font_ascent_px, render.font_descent_px);
     origin_y -= text_height_above_active_line + next_line_scroll;
+    if(is_text_top_aligned() && reserve_generated_band())
+        origin_y += D2DLyricRubyBand(render, canvas_size, generated_reading_band_probe());
+    if(!is_text_top_aligned() || reserve_generated_band()) origin_y -= active_band;
 
-    const int lyric_line_count = static_cast<int>(m_lyrics.lines.size());
+    const int lyric_line_count = static_cast<int>(lyrics.lines.size());
     for(int line_index = 0; line_index < lyric_line_count; line_index++)
     {
-        const LyricDataLine& line = m_lyrics.lines[line_index];
+        const LyricDataLine& line = lyrics.lines[line_index];
         if(line_index == scroll.active_line_index)
         {
             const t_ui_color colour = lerp(hl_colour, past_text_colour, fade.next_line_scroll_factor);
@@ -713,7 +960,7 @@ void ExternalLyricWindow::DrawTimestampedLyrics(D2DTextRenderContext& render)
             render.brush->SetColor(colour_gdi2dx(main_text_colour));
         }
 
-        int wrapped_line_height = DrawWrappedLyricLine(render, canvas_size, line.text, origin_y);
+        int wrapped_line_height = D2DDrawLyricLine(render, canvas_size, line, origin_y);
         if(wrapped_line_height == 0)
         {
             LOG_ERROR("Failed to draw synced text");
@@ -953,10 +1200,13 @@ void ExternalLyricWindow::OnPaint(CDCHandle)
         return;
     }
     D2DTextRenderContext render = {};
+    render.ruby_cache = &m_dwrite_ruby_cache;
+    render.ruby_alignment = preferences::display::text_alignment();
     render.device = m_d2d_dc.Get();
 
     LOGFONT logfont = {};
     const int font_bytes = GetObject(preferences::display::font(), sizeof(logfont), &logfont);
+    render.ruby_font_spec = logfont;
 
     bool success = true;
     Microsoft::WRL::ComPtr<IDWriteFontFace1> fontface = nullptr;
@@ -1173,7 +1423,7 @@ void ExternalLyricWindow::OnPaint(CDCHandle)
         }
         else // We have lyrics, but no timestamps
         {
-            DrawUntimedLyrics(m_lyrics, render);
+            DrawUntimedLyrics(display_lyrics(), render);
         }
 
         HRESULT end_result = m_d2d_dc->EndDraw();

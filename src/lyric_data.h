@@ -30,10 +30,20 @@ struct LyricDataRaw : public LyricDataCommon
 };
 
 // Parsed lyric data
+struct FuriganaSpan
+{
+    size_t start;
+    size_t length;
+    std::tstring reading;
+
+    bool operator==(const FuriganaSpan&) const = default;
+};
+
 struct LyricDataLine
 {
     std::tstring text;
     double timestamp;
+    std::vector<FuriganaSpan> furigana = {};
 };
 
 struct LyricData : public LyricDataCommon
@@ -44,6 +54,12 @@ struct LyricData : public LyricDataCommon
     std::vector<std::string> tags;
     std::vector<LyricDataLine> lines;
     double timestamp_offset;
+
+    // Invalid/unsupported provider metadata is retained only while its text order is unchanged.
+    bool has_kana_metadata = false;
+    bool kana_metadata_valid = false;
+    std::vector<std::string> raw_kana_tags;
+    std::vector<std::tstring> kana_source_lines;
 
     LyricData() = default;
     LyricData(const LyricData& other) = default;

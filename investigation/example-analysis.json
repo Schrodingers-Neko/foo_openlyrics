@@ -1,0 +1,15 @@
+{
+  "encoding": "UTF-8 (strict read)",
+  "physical_timed_lines": 36,
+  "expanded_timed_lines": 49,
+  "physical_han_slots": 147,
+  "expanded_han_slots": 157,
+  "kana_entries": 157,
+  "nonempty_readings": 101,
+  "empty_entries": 56,
+  "leading_empty_entries": 37,
+  "trailing_empty_entries": 19,
+  "count_alignment": "exact",
+  "ordering_hypothesis": "expanded timestamps, then stable chronological order",
+  "sampled_annotation_count": 19
+}

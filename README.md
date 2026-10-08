@@ -14,6 +14,20 @@ An open-source lyrics plugin for [foobar2000](https://www.foobar2000.org/) that 
 * Apply common edits (such as removing blank lines) in just 2 clicks
 * ...and more!
 
+## Embedded furigana
+
+Japanese readings supplied in count-based `[kana:...]` lyric metadata appear above the text in both the panel and external window. Disable **Show furigana** in the display preferences to hide them. Readings use half the lyric font size and follow the current line's highlight color.
+
+Kana metadata may occur before or after the lyric body. Single-character and grouped readings are supported, including empty placeholders. Unsupported or misaligned metadata is hidden from the display rather than attached to the wrong text. Existing readings are preserved through supported edits and local saves; editing text with ambiguous associations clears the affected readings. Timing-bearing kana entries are not supported.
+
+## Optional generated furigana
+
+For Japanese lyrics without kana metadata, open **Preferences → OpenLyrics → Furigana** and choose **Download dictionary and enable**. Generation is disabled by default; the component download contains no dictionary. The optional reading dictionary is a 12.8 MiB download and uses 50.5 MiB in the foobar2000 profile. After setup, generation works offline, including in portable installations.
+
+Generation adds dictionary readings to a temporary display copy. It does not change lyric files, tags, editor text, or uploads. Automatic detection skips Han-only lines; use **Generate furigana for these lyrics** in the lyric menu to treat the current lyrics as Japanese. Existing kana metadata takes precedence, including intentionally empty entries. Dictionary estimates may differ from the singing, especially names and poetic readings.
+
+Turning generation off clears its memory cache and releases the analyzer. The downloaded dictionary remains for re-enabling; **Remove dictionary** frees its disk space. Download/repair is always an explicit action. Generated annotations use a bounded in-memory cache and are regenerated after restart.
+
 ## Screenshots
 Fonts & colours are fully configurable
 ![](.github/readme/lyrics_vertical_scroll.gif)

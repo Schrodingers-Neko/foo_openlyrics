@@ -4,6 +4,14 @@
 *.aps
 
 *.user
+3rdparty/curl-*/
+3rdparty/nghttp2-*/
+3rdparty/mecab-61*/
+3rdparty/mecab-source.tar.gz
+3rdparty/miniz-*/
+build/furigana-dictionary/
+build/furigana-*.tar.gz
+build/furigana-*.log
 Debug/
 Debug FB2K/
 Profile/
