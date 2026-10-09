@@ -19,6 +19,8 @@ namespace furigana_generation
     {
         DictionaryState dictionary = DictionaryState::NotInstalled;
         bool enabled = false;
+        bool master_enabled = true;
+        bool generation_requested = false;
         uint64_t downloaded = 0;
         std::string error;
         bool busy() const
@@ -32,12 +34,14 @@ namespace furigana_generation
     {
     public:
         using Post = std::function<void(std::function<void()>)>;
-        using Changed = std::function<void(bool)>;
+        // True only after explicit setup succeeds; runtime changes do not overwrite saved choices.
+        using Changed = std::function<void(bool setup_succeeded)>;
         using Complete = std::function<void(GeneratedAnnotations)>;
         Service(std::filesystem::path root, Post post, Changed changed);
         ~Service();
         Status status() const;
         void set_enabled(bool enabled);
+        void set_policy(bool master_enabled, bool generation_requested);
         void download_and_enable();
         void cancel_setup();
         void remove_dictionary();
@@ -49,6 +53,7 @@ namespace furigana_generation
         void shutdown();
 
     private:
+        void apply_policy(bool master_enabled, bool generation_requested, bool force);
         class Impl;
         std::unique_ptr<Impl> m_impl;
     };
@@ -58,6 +63,8 @@ namespace furigana_generation
     void shutdown();
     void set_enabled(bool enabled);
     bool enabled();
+    bool active();
+    void apply_preferences();
     void show_preferences();
     extern const GUID preferences_guid;
 }

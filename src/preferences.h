@@ -142,6 +142,12 @@ namespace preferences
         }
     }
 
+    namespace furigana
+    {
+        bool enabled();
+        void set_enabled(bool enabled);
+    }
+
     namespace display
     {
         t_ui_font font();

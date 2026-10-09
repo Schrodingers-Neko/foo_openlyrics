@@ -10,7 +10,7 @@ October 8, 2026; `feat-furigana-support`. The accepted design is [furigana-gener
 - The downloaded dictionary persists beneath `<foobar profile>/openlyrics/furigana/dictionaries/ipadic-utf8-20070801-v1/`. Disabling retains it; removing releases mappings and deletes only recognized feature-owned files. SDK profile resolution supports normal and portable installations.
 - Annotations are memory-only display overlays. Source text, timestamps, metadata, lyric files, editor text, and uploads remain authoritative. Shared analysis uses an 8 MiB accounted LRU cache and one lazy worker. Ineligible lyrics do not open the dictionary.
 - Automatic generation requires Han and kana in the same physical subline. A context action permits Japanese Han-only lines for the track session. Any existing kana metadata excludes the entire lyric file from generation.
-- Both GDI panel and DirectWrite external-window paths draw generated spans. The master **Show furigana** preference controls visibility. Top alignment reserves a reading band while generation is pending; existing scroll and highlight state are retained.
+- Both GDI panel and DirectWrite external-window paths draw generated spans. **Enable furigana** on the Furigana page and lyric context menu controls both visibility and background generation. Master-off retains the installed dictionary and saved generation choice. Kana metadata stays hidden in either state. Top alignment reserves a reading band while generation is pending; existing scroll and highlight state are retained.
 
 ## Pinned artifacts and build
 
@@ -22,8 +22,8 @@ Dictionary build and packaging recipe: `build/build_furigana_dictionary.ps1`, VS
 | --- | ---: |
 | Optional download ZIP | 13,399,728 bytes (12.8 MiB) |
 | Installed dictionary, config, manifest, notices | 52,936,022 bytes (50.5 MiB) |
-| x86 component DLL, Release | 2,590,208 bytes |
-| x64 component DLL, Release | 3,004,416 bytes |
+| x86 component DLL, initial generation preview Release | 2,590,208 bytes |
+| x64 component DLL, initial generation preview Release | 3,004,416 bytes |
 
 The base `.fb2k-component` contains the two DLLs and MeCab/miniz notices, with no dictionary payload. Initial installation needs approximately one installed dictionary's free disk space plus a 1 MiB allowance, in addition to any retained old dictionary. The bounded archive is temporarily held in memory during setup.
 
@@ -39,7 +39,9 @@ Archive SHA-256: `3df6f40dfb4d7ddb558299ec4f39dc79ca32cd5ace076eb7bf61fe86f3d494
 - Background-service tests verify disabled/default-off behavior, equivalent-request coalescing, obsolete requests, cancellation/disablement, source preservation, and shutdown rejecting stale callbacks.
 - Actual GDI and DirectWrite offscreen output covers embedded and generated readings, three horizontal alignments, narrow widths, fallback fonts, colors, 96/144 DPI, and clipping. Preferences resource tests check control bounds and render absent/ready/downloading/repair states. Local images are exported under `build/Debug/furigana-visuals/`.
 
-These are native checks, not a claim that live foobar2000 playback or interactive installation was exercised. The installed player and its profile were not modified.
+On October 9, the master-toggle changes passed all 121 tests on x86 and x64 with the optional dictionary and read-only song fixture. Additional checks cover stored-choice preservation, master-off setup/request gating, stale completions, offline re-enabling, hidden whitespace/BOM/case/timestamp-prefixed metadata, and progress visibility/reset after completion or removal. The preferences resource is also rendered with the master disabled.
+
+The initial preview was installed after backing up the original component and settings. The user confirmed embedded and generated readings in live playback with screenshots. Native checks do not establish live interaction behavior for the new master toggle; those checks remain below.
 
 ## Supplied-song benchmark
 
@@ -62,4 +64,4 @@ Before treating the preview as a production release, use an isolated or explicit
 3. Active-line positioning when annotations arrive, including a wrapping change during scrolling; normal and portable profile locations.
 4. Unavailable network, profile permissions/free-space errors, interrupted process recovery, and close during setup.
 
-Native desktop interaction is unavailable in this session. The reviewable local `.fb2k-component` can be installed manually for these checks; installation into the user's running player must be explicit because it replaces the installed DLL and requires a restart.
+Native desktop interaction is unavailable in this session. The user has authorized backing up and updating the installed preview; process/module checks verify which DLL is loaded, while interactive playback checks require the user's player UI.

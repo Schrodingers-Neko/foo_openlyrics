@@ -86,17 +86,17 @@ public:
         pending.clear();
     }
 
-    void notify(std::weak_ptr<Service> weak, uint64_t revision)
+    void notify(std::weak_ptr<Service> weak, uint64_t revision, bool setup_succeeded = false)
     {
         if(stopping || epoch != revision) return;
         post(
-            [weak, revision]
+            [weak, revision, setup_succeeded]
             {
                 if(const auto owner = weak.lock())
                 {
                     auto& self = *owner->m_impl;
                     if(self.stopping || self.epoch != revision) return;
-                    self.changed(owner->status().enabled);
+                    self.changed(setup_succeeded);
                 }
             });
     }
@@ -118,11 +118,28 @@ furigana_generation::Status furigana_generation::Service::status() const
 
 void furigana_generation::Service::set_enabled(bool enable)
 {
+    set_policy(status().master_enabled, enable);
+}
+
+void furigana_generation::Service::set_policy(bool master_enabled, bool generation_requested)
+{
+    apply_policy(master_enabled, generation_requested, false);
+}
+
+void furigana_generation::Service::apply_policy(bool master_enabled, bool generation_requested, bool force)
+{
     auto& self = *m_impl;
+    const auto previous = status();
+    if(!force && previous.master_enabled == master_enabled && previous.generation_requested == generation_requested)
+        return;
+    const bool enable = master_enabled && generation_requested;
     self.invalidate();
     {
         std::lock_guard lock(self.mutex);
         self.state.enabled = enable;
+        self.state.master_enabled = master_enabled;
+        self.state.generation_requested = generation_requested;
+        self.state.downloaded = 0;
         self.state.dictionary = self.store.present() ? DictionaryState::Ready
                                 : enable             ? DictionaryState::NeedsRepair
                                                      : DictionaryState::NotInstalled;
@@ -147,7 +164,7 @@ void furigana_generation::Service::set_enabled(bool enable)
 void furigana_generation::Service::download_and_enable()
 {
     auto& self = *m_impl;
-    if(status().busy()) return;
+    if(!status().master_enabled || status().busy()) return;
     const bool was_enabled = status().enabled;
     self.invalidate();
     const auto revision = self.epoch.load();
@@ -163,6 +180,7 @@ void furigana_generation::Service::download_and_enable()
         {
             auto& impl = *implementation;
             const auto cancelled = [&] { return impl.stopping || impl.epoch != revision; };
+            bool setup_succeeded = false;
             try
             {
                 impl.analyzer.reset();
@@ -184,7 +202,10 @@ void furigana_generation::Service::download_and_enable()
                     std::lock_guard lock(impl.mutex);
                     if(cancelled()) return;
                     impl.state.dictionary = DictionaryState::Ready;
+                    impl.state.downloaded = 0;
                     impl.state.enabled = true;
+                    impl.state.generation_requested = true;
+                    setup_succeeded = true;
                 }
             }
             catch(const std::exception& error)
@@ -195,15 +216,16 @@ void furigana_generation::Service::download_and_enable()
                 impl.state.dictionary = present ? DictionaryState::Ready : DictionaryState::NeedsRepair;
                 impl.state.enabled = was_enabled && present;
                 impl.state.error = error.what();
+                impl.state.downloaded = 0;
             }
-            impl.notify(weak, revision);
+            impl.notify(weak, revision, setup_succeeded);
         });
 }
 
 void furigana_generation::Service::cancel_setup()
 {
-    const bool keep_enabled = status().enabled;
-    set_enabled(keep_enabled);
+    const auto current = status();
+    apply_policy(current.master_enabled, current.generation_requested, true);
 }
 
 void furigana_generation::Service::remove_dictionary()
@@ -215,6 +237,8 @@ void furigana_generation::Service::remove_dictionary()
     {
         std::lock_guard lock(self.mutex);
         self.state.enabled = false;
+        self.state.generation_requested = false;
+        self.state.downloaded = 0;
         self.state.dictionary = DictionaryState::Removing;
         self.state.error.clear();
     }
@@ -390,12 +414,16 @@ namespace
         g_generation_service = std::make_shared<furigana_generation::Service>(
             root,
             [](auto callback) { fb2k::inMainThread2(std::move(callback)); },
-            [](bool enable)
+            [](bool setup_succeeded)
             {
-                furigana_generation::set_enabled(enable);
+                if(setup_succeeded && preferences::furigana::enabled() && !furigana_generation::enabled())
+                {
+                    furigana_generation::set_enabled(true);
+                    return;
+                }
                 refresh_generated_furigana();
             });
-        if(furigana_generation::enabled()) g_generation_service->set_enabled(true);
+        g_generation_service->set_policy(preferences::furigana::enabled(), furigana_generation::enabled());
     }
 }
 FB2K_RUN_ON_INIT(initialise_generation);
@@ -404,6 +432,15 @@ FB2K_RUN_ON_QUIT(furigana_generation::shutdown);
 std::shared_ptr<furigana_generation::Service> furigana_generation::service()
 {
     return g_generation_service;
+}
+bool furigana_generation::active()
+{
+    return preferences::furigana::enabled() && enabled();
+}
+void furigana_generation::apply_preferences()
+{
+    if(g_generation_service) g_generation_service->set_policy(preferences::furigana::enabled(), enabled());
+    refresh_generated_furigana();
 }
 void furigana_generation::shutdown()
 {
@@ -435,6 +472,32 @@ MVTF_TEST(generation_service_disabled_does_not_create_profile)
     ASSERT(!std::filesystem::exists(root));
 }
 
+MVTF_TEST(generation_master_off_blocks_setup_and_keeps_generation_choice)
+{
+    using namespace furigana_generation;
+    const auto root = std::filesystem::temp_directory_path()
+                      / std::format(L"openlyrics-master-off-{}-{}", GetCurrentProcessId(), GetTickCount64());
+    std::vector<std::function<void()>> posted;
+    bool setup_succeeded = false;
+    auto instance = std::make_shared<Service>(
+        root,
+        [&](auto callback) { posted.push_back(std::move(callback)); },
+        [&](bool setup) { setup_succeeded |= setup; });
+    instance->set_policy(false, true);
+    instance->download_and_enable(); // A master-off service must not start network or file work.
+    LyricData lyrics {};
+    lyrics.lines = { { _T("今日の歌"), 1.0 } };
+    bool received = false;
+    instance->request(lyrics, true, [&](auto) { received = true; });
+    const auto status = instance->status();
+    ASSERT(!status.enabled && !status.master_enabled && status.generation_requested && !status.busy()
+           && status.downloaded == 0 && !std::filesystem::exists(root));
+    for(auto& callback : posted)
+        callback();
+    ASSERT(!received && !setup_succeeded);
+    instance->shutdown();
+}
+
 MVTF_TEST(generation_service_coalesces_and_rejects_stale_results_when_requested)
 {
     using namespace furigana_generation;
@@ -450,6 +513,8 @@ MVTF_TEST(generation_service_coalesces_and_rejects_stale_results_when_requested)
     std::mutex queue_mutex;
     std::condition_variable changed;
     std::deque<std::function<void()>> queue;
+    int notifications = 0;
+    bool setup_succeeded = false;
     auto instance = std::make_shared<Service>(
         root,
         [&](auto callback)
@@ -458,7 +523,11 @@ MVTF_TEST(generation_service_coalesces_and_rejects_stale_results_when_requested)
             queue.push_back(std::move(callback));
             changed.notify_one();
         },
-        [](bool) {});
+        [&](bool setup)
+        {
+            ++notifications;
+            setup_succeeded |= setup;
+        });
     const auto drain = [&](const std::function<bool()>& done)
     {
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -491,6 +560,16 @@ MVTF_TEST(generation_service_coalesces_and_rejects_stale_results_when_requested)
     ASSERT(drain([&] { return received == 2; }));
     ASSERT(result.size() == 2 && result[0] == result[1] && result[0].size() == 4);
     ASSERT(lyrics.lines[0].furigana.empty() && !lyrics.has_kana_metadata);
+    instance->request(lyrics, true, receive);
+    const int previous_notifications = notifications;
+    instance->set_policy(false, true);
+    ASSERT(drain([&] { return notifications > previous_notifications; }));
+    ASSERT(received == 2 && !instance->status().enabled && instance->status().generation_requested && store.present()
+           && !setup_succeeded);
+    instance->set_policy(true, true);
+    instance->request(lyrics, false, receive);
+    ASSERT(drain([&] { return received == 3; }));
+    ASSERT(result[0].size() == 4 && instance->status().enabled && store.present());
     std::atomic<bool> obsolete { false };
     instance->request(lyrics, true, receive, [&] { return obsolete.load(); });
     obsolete = true;
@@ -502,7 +581,7 @@ MVTF_TEST(generation_service_coalesces_and_rejects_stale_results_when_requested)
         queue.pop_front();
         callback();
     }
-    ASSERT(received == 2 && !instance->status().enabled);
+    ASSERT(received == 3 && !instance->status().enabled);
     store.verify([] { return false; });
     store.remove();
     std::filesystem::remove(root / L"dictionaries");

@@ -4,6 +4,8 @@ Drafted October 8, 2026 against the embedded-furigana implementation on `feat-fu
 
 Revised to make generation an optional feature with a separately downloaded dictionary. The base component contains the native analyzer and setup UI, but no dictionary data. Existing embedded readings continue to work without enabling generation or downloading anything.
 
+The October 9 [master-toggle follow-up](furigana-master-toggle-plan.md) supersedes the controls below: **Enable furigana** controls embedded/generated display and background analysis, while kana metadata remains hidden independently of the toggle. The saved generation choice and installed dictionary survive master-off.
+
 ## Recommended first release
 
 Generate readings offline for lyrics with no `[kana:...]` metadata, using a native Japanese tokenizer and reading dictionary. Reuse `FuriganaSpan`, the shared ruby layout, and both existing rendering adapters. Display ordinary lyrics immediately, then add readings when analysis completes.

@@ -5,7 +5,37 @@
 #include "mvtf/mvtf.h"
 #include "parsers.h"
 
-bool furigana::is_kana_tag(std::string_view line)
+static std::string_view trim_kana_record(std::string_view line)
+{
+    // Metadata can be indented. Trim working views only; raw records remain intact for preservation.
+    constexpr std::string_view whitespace[] = { " ", "\t", "\r", "\n", "\v", "\f", "\xc2\xa0", "\xe3\x80\x80" };
+    bool trimmed = true;
+    while(trimmed)
+    {
+        trimmed = false;
+        if(line.starts_with("\xef\xbb\xbf"))
+        {
+            line.remove_prefix(3);
+            trimmed = true;
+        }
+        for(const auto space : whitespace)
+        {
+            if(line.starts_with(space))
+            {
+                line.remove_prefix(space.size());
+                trimmed = true;
+            }
+            if(line.ends_with(space))
+            {
+                line.remove_suffix(space.size());
+                trimmed = true;
+            }
+        }
+    }
+    return line;
+}
+
+static bool starts_kana_record(std::string_view line)
 {
     constexpr std::string_view prefix = "[kana:";
     if(line.size() < prefix.size()) return false;
@@ -16,6 +46,21 @@ bool furigana::is_kana_tag(std::string_view line)
         if(c != prefix[i]) return false;
     }
     return true;
+}
+
+bool furigana::is_kana_tag(std::string_view line)
+{
+    line = trim_kana_record(line);
+    // A reserved metadata record can be timestamp-prefixed; those forms remain unsupported for readings.
+    while(!line.empty() && line.front() == '[' && !starts_kana_record(line))
+    {
+        const auto end = line.find(']');
+        if(end == line.npos) break;
+        double timestamp = 0;
+        if(!parsers::lrc::try_parse_timestamp(line.substr(0, end + 1), timestamp)) break;
+        line = trim_kana_record(line.substr(end + 1));
+    }
+    return starts_kana_record(line);
 }
 
 static bool is_digit(TCHAR c)
@@ -75,6 +120,8 @@ struct KanaUnit
 
 static std::optional<std::vector<KanaUnit>> parse_units(std::string_view tag)
 {
+    tag = trim_kana_record(tag);
+    if(!starts_kana_record(tag)) return {};
     if(tag.size() <= 6 || tag.back() != ']') return {};
     const std::tstring payload = to_tstring(tag.substr(6, tag.size() - 7));
     std::vector<KanaUnit> units;
@@ -320,6 +367,7 @@ void furigana::preserve_annotations(const LyricData& before, LyricData& after, b
 }
 
 #if MVTF_TESTS_ENABLED
+#include "furigana_generator.h"
 static bool equivalent_lyrics(const LyricData& a, const LyricData& b)
 {
     if(a.lines.size() != b.lines.size() || a.timestamp_offset != b.timestamp_offset)
@@ -418,6 +466,40 @@ MVTF_TEST(furigana_output_purposes_do_not_leak_metadata)
         ASSERT(text.find(_T("日")) != std::tstring::npos);
         ASSERT(text.find(_T("[ti:example]")) != std::tstring::npos);
     }
+}
+
+MVTF_TEST(furigana_metadata_variants_never_become_lyric_lines)
+{
+    for(const std::string& record : { " \t[KaNa:1ひ] \t",
+                                      "\xef\xbb\xbf [kana:1ひ]",
+                                      "　[kana:1ひ]　",
+                                      " [00:09.00][00:10.00] [KANA:1ひ] ",
+                                      "\t[kana:1ひ(100,20)]",
+                                      " \t[kana:1ひ" })
+    {
+        for(const std::string& body : { "[00:01.00]日", "日" })
+        {
+            const auto data = parsers::lrc::parse({}, body + "\n" + record);
+            ASSERT(data.has_kana_metadata && data.lines.size() == 1 && data.lines[0].text == _T("日"));
+            ASSERT(!furigana_generation::eligible(data, true));
+            const auto saved = parsers::lrc::expand_text(data, false);
+            const auto reloaded = parsers::lrc::parse({}, from_tstring(saved));
+            ASSERT(reloaded.has_kana_metadata && reloaded.lines.size() == 1);
+            if(!data.kana_metadata_valid) ASSERT(saved.find(to_tstring(record)) != saved.npos);
+            for(auto purpose : { parsers::lrc::TextPurpose::Editor, parsers::lrc::TextPurpose::Upload })
+            {
+                const auto visible = parsers::lrc::expand_text(data, false, purpose);
+                ASSERT(visible.find(_T("kana:")) == visible.npos && visible.find(_T("KANA:")) == visible.npos
+                       && visible.find(_T("KaNa:")) == visible.npos);
+            }
+        }
+    }
+    const auto valid = parsers::lrc::parse({}, "[00:01.00]日\n\t[KaNa:1ひ]\t");
+    ASSERT(valid.kana_metadata_valid && valid.lines[0].furigana.size() == 1);
+    const auto timed = parsers::lrc::parse({}, "[00:01.00]日\n[00:02.00][kana:1ひ]");
+    ASSERT(!timed.kana_metadata_valid && timed.raw_kana_tags[0] == "[00:02.00][kana:1ひ]");
+    const auto literal = parsers::lrc::parse({}, "[00:01.00]歌 [kana:literal]");
+    ASSERT(!literal.has_kana_metadata && literal.lines[0].text == _T("歌 [kana:literal]"));
 }
 
 MVTF_TEST(furigana_editor_matching_preserves_only_known_associations)

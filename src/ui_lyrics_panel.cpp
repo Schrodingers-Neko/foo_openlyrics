@@ -66,7 +66,7 @@ void announce_generated_furigana(uint64_t panel_id,
                                  const std::shared_ptr<void>& ticket,
                                  furigana_generation::GeneratedAnnotations annotations)
 {
-    if(!furigana_generation::enabled()) return;
+    if(!furigana_generation::active()) return;
     for(auto* panel : g_active_panels)
     {
         if(panel->m_generation_panel_id != panel_id || panel->m_generation_ticket != ticket
@@ -85,9 +85,9 @@ void LyricPanel::request_generated_furigana()
     m_generation_ticket.reset();
     m_generated_display.reset();
     clear_ruby_layouts();
-    if(!furigana_generation::enabled()) m_force_japanese = false;
+    if(!furigana_generation::active()) m_force_japanese = false;
     const auto service = furigana_generation::service();
-    m_generation_reserve_band = service && furigana_generation::enabled()
+    m_generation_reserve_band = service && furigana_generation::active()
                                 && service->status().dictionary == furigana_generation::DictionaryState::Ready
                                 && furigana_generation::eligible(m_lyrics, m_force_japanese);
     if(m_generation_reserve_band)
@@ -1253,6 +1253,7 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
             ID_DELETE_CURRENT_LYRICS,
             ID_OPEN_EXTERNAL_WINDOW,
             ID_GENERATE_FURIGANA,
+            ID_FURIGANA_ENABLED,
             ID_CMD_COUNT,
         };
 
@@ -1281,9 +1282,10 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
         AppendMenu(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenu(menu, MF_STRING | disabled_without_nowplaying, ID_EDIT_LYRICS, _T("Edit lyrics"));
         const auto generation_service = furigana_generation::service();
-        const bool generation_ready = generation_service && furigana_generation::enabled()
+        AppendMenu(menu, MF_STRING | (preferences::furigana::enabled() ? MF_CHECKED : 0), ID_FURIGANA_ENABLED, _T("Enable furigana"));
+        const bool generation_ready = generation_service && furigana_generation::active()
                                       && generation_service->status().dictionary == furigana_generation::DictionaryState::Ready;
-        AppendMenu(menu, MF_STRING | (generation_ready ? disabled_without_nowplaying | disabled_without_lyrics | (m_lyrics.has_kana_metadata ? MF_GRAYED : 0) : 0),
+        AppendMenu(menu, MF_STRING | (!preferences::furigana::enabled() ? MF_GRAYED : generation_ready ? disabled_without_nowplaying | disabled_without_lyrics | (m_lyrics.has_kana_metadata ? MF_GRAYED : 0) : 0),
                    ID_GENERATE_FURIGANA, generation_ready ? _T("Generate furigana for these lyrics") : _T("Set up generated furigana..."));
         AppendMenu(menu, MF_STRING | MF_POPUP, (UINT_PTR)menu_edit.m_hMenu, _T("Auto-edit lyrics"));
         AppendMenu(menu, MF_STRING, ID_OPEN_EXTERNAL_WINDOW, _T("Open external window (experimental)"));
@@ -1377,10 +1379,13 @@ void LyricPanel::OnContextMenu(CWindow window, CPoint point)
             }
             break;
 
+            case ID_FURIGANA_ENABLED: preferences::furigana::set_enabled(!preferences::furigana::enabled()); break;
+
             case ID_GENERATE_FURIGANA:
             {
+                if(!preferences::furigana::enabled()) break;
                 const auto service = furigana_generation::service();
-                if(!service || !furigana_generation::enabled()
+                if(!service || !furigana_generation::active()
                    || service->status().dictionary != furigana_generation::DictionaryState::Ready)
                     furigana_generation::show_preferences();
                 else

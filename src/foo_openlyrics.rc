@@ -102,7 +102,6 @@ BEGIN
     CONTROL         "Continuous scrolling",IDC_DISPLAY_SCROLL_CONTINUOUS,
                     "Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,157,79,10
     GROUPBOX        "Other",IDC_STATIC,0,206,326,72
-    CONTROL         "Show furigana",IDC_DISPLAY_FURIGANA,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,263,115,10
     LTEXT           "Highlight fade time",IDC_STATIC,7,217,59,8
     CONTROL         "",IDC_DISPLAY_HIGHLIGHT_FADE_TIME,"msctls_trackbar32",TBS_BOTH | TBS_NOTICKS | WS_TABSTOP,83,214,229,15
     CTEXT           "Static",IDC_DISPLAY_HIGHLIGHT_FADE_TIME_PREVIEW,83,231,229,8
@@ -113,22 +112,23 @@ BEGIN
     LTEXT           "Text alignment:",IDC_STATIC,193,244,49,8
 END
 
-IDD_PREFERENCES_FURIGANA DIALOGEX 0, 0, 333, 230
+IDD_PREFERENCES_FURIGANA DIALOGEX 0, 0, 333, 258
 STYLE DS_SETFONT | WS_CHILD
 FONT 8, "Microsoft Sans Serif", 400, 0, 0x0
 BEGIN
-    CONTROL "Enable generated furigana",IDC_GENERATION_ENABLED,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,8,180,12
-    LTEXT "Generate readings for Japanese lyrics without kana metadata. Once the dictionary is installed, generation works offline.",IDC_STATIC,7,27,319,24
-    GROUPBOX "Japanese reading dictionary",IDC_STATIC,0,57,326,123
-    LTEXT "12.8 MiB download; 50.5 MiB installed. Downloading is optional.",IDC_STATIC,7,71,310,12
-    LTEXT "Not installed",IDC_DICTIONARY_STATUS,7,89,309,31
-    CONTROL "",IDC_DICTIONARY_PROGRESS,"msctls_progress32",WS_BORDER,7,123,309,10
-    PUSHBUTTON "Download dictionary and enable",IDC_DICTIONARY_DOWNLOAD,7,139,160,18
-    PUSHBUTTON "Cancel",IDC_DICTIONARY_CANCEL,174,139,66,18
-    PUSHBUTTON "Remove dictionary",IDC_DICTIONARY_REMOVE,7,161,110,14
-    PUSHBUTTON "Dictionary notices...",IDC_DICTIONARY_NOTICES,174,161,142,14
-    LTEXT "Readings are dictionary estimates and may differ from the singing. Generated annotations stay in memory; lyric files are unchanged.",IDC_STATIC,7,189,309,24
-    LTEXT "Show or hide all readings using Show furigana in Display preferences.",IDC_STATIC,7,218,309,10
+    CONTROL "Enable furigana",IDC_FURIGANA_ENABLED,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,8,180,12
+    LTEXT "Controls all readings and generation. Kana metadata is always hidden from the lyrics.",IDC_STATIC,7,25,309,20
+    CONTROL "Generate readings when kana metadata is absent",IDC_GENERATION_ENABLED,"Button",BS_AUTOCHECKBOX | WS_TABSTOP,7,49,309,12
+    LTEXT "Optional Japanese dictionary readings. Once the dictionary is installed, generation works offline.",IDC_STATIC,7,66,309,20
+    GROUPBOX "Japanese reading dictionary",IDC_STATIC,0,91,326,123
+    LTEXT "12.8 MiB download; 50.5 MiB installed. Downloading is optional.",IDC_STATIC,7,105,310,12
+    LTEXT "Not installed",IDC_DICTIONARY_STATUS,7,123,309,31
+    CONTROL "",IDC_DICTIONARY_PROGRESS,"msctls_progress32",WS_BORDER,7,157,309,10
+    PUSHBUTTON "Download dictionary and enable",IDC_DICTIONARY_DOWNLOAD,7,173,160,18
+    PUSHBUTTON "Cancel",IDC_DICTIONARY_CANCEL,174,173,66,18
+    PUSHBUTTON "Remove dictionary",IDC_DICTIONARY_REMOVE,7,195,110,14
+    PUSHBUTTON "Dictionary notices...",IDC_DICTIONARY_NOTICES,174,195,142,14
+    LTEXT "Readings are dictionary estimates and may differ from the singing. Generated annotations stay in memory; lyric files are unchanged.",IDC_STATIC,7,223,309,24
 END
 
 IDD_PREFERENCES_EDIT DIALOGEX 0, 0, 332, 288
