@@ -20,4 +20,6 @@ The test workflow previously ran only for main pushes, pull requests, or reusabl
 
 Main and its historical red runs retain the old behavior until the feature branch's version-header fix is integrated into main. No component release tags are copied or created to mask this problem.
 
-The optional dictionary's independent [build and publication run](https://github.com/Schrodingers-Neko/foo_openlyrics/actions/runs/37860754248) succeeded. Fresh component CI results will be recorded here after the feature push.
+The optional dictionary's independent [build and publication run](https://github.com/Schrodingers-Neko/foo_openlyrics/actions/runs/37860754248) succeeded.
+
+Fresh component [run 37887185046](https://github.com/Schrodingers-Neko/foo_openlyrics/actions/runs/37887185046), building feature commit `a7709d4e15e64c684df9aa333f4fdb83a42f9cae`, succeeded on both x86 and x64. Each job compiled the optional dictionary, passed all 121 native tests, and built Release binaries. Both Debug and Release logs show the tagless version fallback using `a7709d4`. The documentation-only result commit skips duplicate CI; the tested source and workflow are unchanged.

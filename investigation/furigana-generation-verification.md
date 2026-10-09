@@ -41,6 +41,10 @@ Archive SHA-256: `3df6f40dfb4d7ddb558299ec4f39dc79ca32cd5ace076eb7bf61fe86f3d494
 
 On October 9, the master-toggle changes passed all 121 tests on x86 and x64 with the optional dictionary and read-only song fixture. Additional checks cover stored-choice preservation, master-off setup/request gating, stale completions, offline re-enabling, hidden whitespace/BOM/case/timestamp-prefixed metadata, and progress visibility/reset after completion or removal. The preferences resource is also rendered with the master disabled.
 
+Both master-toggle Release builds passed locally: x86 DLL 2,592,768 bytes; x64 DLL 3,007,488 bytes. The 2,229,630-byte preview package contains these DLLs and license notices only. The installed x64 DLL matches source commit `79a1f1f` and SHA-256 `a722faea2dff8a2a4190ef53484bb28cd7a5dbd4a81b9af77d5f4c4bcce7ccf6`; graceful restart and module-path verification succeeded. The original backup and a separate previous-preview/settings backup are retained under `releases/backups/`.
+
+GitHub [run 37887185046](https://github.com/Schrodingers-Neko/foo_openlyrics/actions/runs/37887185046) also passed all 121 native tests and Debug/Release builds for each architecture, including dictionary compilation. Its feature source matches the installed master-toggle implementation; subsequent changes only enabled feature-branch CI and documented the results.
+
 The initial preview was installed after backing up the original component and settings. The user confirmed embedded and generated readings in live playback with screenshots. Native checks do not establish live interaction behavior for the new master toggle; those checks remain below.
 
 ## Supplied-song benchmark
